@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UK Departure Board</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Doto:wght@900&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div id="chips" class="chips"></div>
+    <form id="addForm" class="add" autocomplete="off">
+      <input id="stationInput" list="stationList" placeholder="Add station (name or code)…" aria-label="Station name or code">
+      <datalist id="stationList"></datalist>
+      <button type="submit">+ Add</button>
+    </form>
+    <span id="msg" class="msg" role="status"></span>
+    <span class="meta"><span id="mode"></span> · refresh 30 s
+      <button id="fsBtn" class="fs" type="button" title="Full screen">⛶</button></span>
+  </header>
+  <main id="grid" class="grid"></main>
+  <script src="app.js"></script>
+</body>
+</html>
