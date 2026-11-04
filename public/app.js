@@ -208,11 +208,16 @@ function render() {
 async function load(st) {
   try {
     const r = await fetch(`api/departures?id=${encodeURIComponent(st.crs)}`);
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}));
+      throw new Error(body.detail || body.error || `HTTP ${r.status}`);
+    }
     st.data = await r.json();
     st.error = '';
+    st.detail = '';
   } catch (err) {
     st.error = 'Unable to load departures';
+    st.detail = err.message;
     console.warn(st.crs, err);
   }
   if (boards.get(st.crs) === st) paint(st);
@@ -229,7 +234,7 @@ function paint(st) {
   }
   const q = (s) => st.el.querySelector(s);
   const services = st.data?.services || [];
-  if (st.error && !st.data) return showText(st, st.error);
+  if (st.error && !st.data) return showText(st, st.error, st.detail);
   if (!services.length) {
     q('.r1 .l').textContent = 'No services';
     q('.r1 .r').textContent = '';
@@ -260,11 +265,11 @@ function paintNext(st) {
   q('.r3 .r').textContent = status(s);
 }
 
-function showText(st, text) {
+function showText(st, text, detail = '') {
   const q = (s) => st.el.querySelector(s);
   q('.r1 .l').textContent = text;
   q('.r1 .r').textContent = '';
-  setCall(st, '');
+  setCall(st, detail);
   q('.r3 .l').textContent = '';
   q('.r3 .r').textContent = '';
 }

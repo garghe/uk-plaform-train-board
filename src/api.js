@@ -45,7 +45,7 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
     } catch (err) {
       console.error(`TfL data failed for ${id}:`, err.message);
       if (hit) return json(200, { ...hit.data, stale: true });
-      return json(502, { error: 'Live data unavailable' });
+      return json(502, { error: 'Live data unavailable', detail: err.message });
     }
   }
 

@@ -7,6 +7,12 @@ export const TUBE_LINES = [
   'bakerloo', 'central', 'circle', 'district', 'hammersmith-city', 'jubilee',
   'metropolitan', 'northern', 'piccadilly', 'victoria', 'waterloo-city',
 ];
+const HINT = {
+  401: 'app key not accepted',
+  403: 'access refused - an app key may be needed',
+  404: 'not found',
+  429: 'too many requests - add a TFL_APP_KEY',
+};
 const STATIONS_TTL = 24 * 3600 * 1000;
 const STATIONS_RETRY = 5 * 60 * 1000;
 const STATUS_TTL = 60 * 1000;
@@ -23,15 +29,28 @@ export function createTfl({ baseUrl = DEFAULT_TFL_URL, appKey = '' } = {}) {
   let status = null;          // Map lineId -> { name, text }
   let statusAt = 0;
 
-  async function get(path) {
+  async function get(path, retry = true) {
     const url = new URL(baseUrl + path);
     if (appKey) url.searchParams.set('app_key', appKey);
-    const r = await fetch(url, {
-      headers: { accept: 'application/json', 'user-agent': 'uk-platform-train-board/1.2' },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!r.ok) throw new Error(`TfL HTTP ${r.status}`);
-    return r.json();
+    let r;
+    try {
+      r = await fetch(url, {
+        headers: { accept: 'application/json', 'user-agent': 'uk-platform-train-board/1.3' },
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch (err) {
+      throw new Error(`could not reach TfL (${err.name === 'TimeoutError' ? 'timed out' : err.message})`);
+    }
+    if (r.ok) return r.json();
+    // One quick retry for rate limits and TfL hiccups.
+    if (retry && (r.status === 429 || r.status >= 500)) {
+      const wait = Math.min(2000, (Number(r.headers.get('retry-after')) || 1) * 1000);
+      await new Promise((ok) => setTimeout(ok, wait));
+      return get(path, false);
+    }
+    const body = (await r.text().catch(() => '')).replace(/\s+/g, ' ');
+    const msg = (body.match(/"message"\s*:\s*"([^"]{1,160})/) || [])[1] || '';
+    throw new Error(`TfL HTTP ${r.status}${HINT[r.status] ? ` (${HINT[r.status]})` : ''}${msg ? `: ${msg}` : ''}`);
   }
 
   // All Tube stations, built from each line's stop list. Cached for a day once
@@ -104,7 +123,15 @@ export function createTfl({ baseUrl = DEFAULT_TFL_URL, appKey = '' } = {}) {
   }
 
   async function board(id) {
-    const [list, preds, statuses] = await Promise.all([listStations(), get(`/StopPoint/${id}/Arrivals`), lineStatus()]);
+    let preds;
+    const [list, , statuses] = await Promise.all([
+      listStations(),
+      get(`/StopPoint/${id}/Arrivals`).then((p) => { preds = p; }, (err) => {
+        lastError = `Arrivals ${id}: ${err.message}`;
+        throw err;
+      }),
+      lineStatus(),
+    ]);
     const station = list.get(id);
     const tubePreds = (preds || []).filter((p) => !p.modeName || p.modeName === 'tube');
 
