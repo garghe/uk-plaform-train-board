@@ -11,9 +11,15 @@ let apiFor;
 export default {
   async fetch(request, env) {
     // Build once per isolate (keeps the 20 s cache), rebuild if settings change.
-    const key = `${env.RDM_API_KEY || ''}|${env.RDM_DEPARTURES_URL || ''}`;
+    const key = [env.RDM_API_KEY, env.RDM_DEPARTURES_URL, env.TFL_APP_KEY, env.TFL_API_URL].join('|');
     if (!api || apiFor !== key) {
-      api = createApi({ stations, apiKey: env.RDM_API_KEY, apiUrl: env.RDM_DEPARTURES_URL });
+      api = createApi({
+        stations,
+        apiKey: env.RDM_API_KEY,
+        apiUrl: env.RDM_DEPARTURES_URL,
+        tflKey: env.TFL_APP_KEY,
+        tflUrl: env.TFL_API_URL,
+      });
       apiFor = key;
     }
     const res = await api(new URL(request.url));

@@ -3,24 +3,25 @@
 const MAX = 4;
 const REFRESH_MS = 30 * 1000;
 const CYCLE_MS = 4000;          // line 3: next train shown every 4 s
+const PLATFORM_MS = 12000;      // Tube: switch platform every 12 s
 const SCROLL_EM_PER_S = 3;      // line 2: scroll speed
 const STORE_KEY = 'departureBoard.stations';
 
 const $ = (id) => document.getElementById(id);
-let stations = [];                    // [[name, crs], ...]
-let byCrs = new Map();
-let selected = [];                    // ['LBG', 'WAT', ...]
+let stations = [];                    // [[name, id, 'rail'|'tube'], ...]
+let byId = new Map();                 // id -> { name, kind }
+let selected = [];                    // ['LBG', '940GZZLUOXC', ...]
 const boards = new Map();             // crs -> board state
 
 init();
 
 async function init() {
   stations = await (await fetch('api/stations')).json();
-  byCrs = new Map(stations.map(([n, c]) => [c, n]));
-  $('stationList').innerHTML = stations.map(([n, c]) => `<option value="${esc(n)} (${c})">`).join('');
+  byId = new Map(stations.map(([name, id, kind]) => [id, { name, kind }]));
+  $('stationList').innerHTML = stations.map(([n, id]) => `<option value="${esc(label(id))}">`).join('');
 
   fetch('api/status').then((r) => r.json()).then(({ mode }) => {
-    $('mode').innerHTML = mode === 'live' ? '<span class="live">● Live data</span>' : '<span class="sample">● Sample data</span>';
+    $('mode').innerHTML = mode === 'live' ? '<span class="live">● Live data</span>' : '<span class="sample">● Sample rail data</span>';
   });
 
   selected = readSelection();
@@ -33,6 +34,7 @@ async function init() {
   setInterval(refreshAll, REFRESH_MS);
   setInterval(tickClock, 1000);
   setInterval(cycleNext, CYCLE_MS);
+  setInterval(cyclePlatform, PLATFORM_MS);
   requestAnimationFrame(scrollLoop);
 }
 
@@ -43,7 +45,7 @@ function readSelection(useStore = true) {
   if (!list[0] && useStore) {
     try { list = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { list = []; }
   }
-  return [...new Set(list.map((c) => String(c).trim().toUpperCase()).filter((c) => byCrs.has(c)))].slice(0, MAX);
+  return [...new Set(list.map((c) => String(c).trim().toUpperCase()).filter((c) => byId.has(c)))].slice(0, MAX);
 }
 
 function saveSelection() {
@@ -54,18 +56,34 @@ function saveSelection() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(selected)); } catch { /* storage unavailable */ }
 }
 
+// "Bath Spa (BTH)" for rail, "Oxford Circus (Tube)" for the Underground.
+function label(id) {
+  const s = byId.get(id);
+  return s ? `${s.name} (${s.kind === 'tube' ? 'Tube' : id})` : id;
+}
+
 function findStation(text) {
-  const q = text.trim();
+  let q = text.trim();
   if (!q) return null;
-  const code = q.match(/\(([A-Za-z]{3})\)\s*$/);
-  if (code && byCrs.has(code[1].toUpperCase())) return code[1].toUpperCase();
-  if (/^[A-Za-z]{3}$/.test(q) && byCrs.has(q.toUpperCase())) return q.toUpperCase();
   const lower = q.toLowerCase();
-  const exact = stations.find(([n]) => n.toLowerCase() === lower);
-  if (exact) return exact[1];
-  const starts = stations.filter(([n]) => n.toLowerCase().startsWith(lower));
+  const byLabel = stations.find(([, id]) => label(id).toLowerCase() === lower);
+  if (byLabel) return byLabel[1];
+  if (/^[A-Za-z]{3}$/.test(q) && byId.get(q.toUpperCase())?.kind === 'rail') return q.toUpperCase();
+
+  // "Bank tube" / "Bank underground" → only Tube stations
+  let pool = stations;
+  const tubeWord = /\s+(\(?tube\)?|underground)$/i;
+  if (tubeWord.test(q)) {
+    q = q.replace(tubeWord, '');
+    pool = stations.filter(([, , k]) => k === 'tube');
+  }
+  const ql = q.toLowerCase();
+  const exact = pool.filter(([n]) => n.toLowerCase() === ql);
+  if (exact.length === 1) return exact[0][1];
+  if (exact.length > 1) return null;   // e.g. both a rail and a Tube station: pick from the list
+  const starts = pool.filter(([n]) => n.toLowerCase().startsWith(ql));
   if (starts.length === 1) return starts[0][1];
-  const contains = stations.filter(([n]) => n.toLowerCase().includes(lower));
+  const contains = pool.filter(([n]) => n.toLowerCase().includes(ql));
   return contains.length === 1 ? contains[0][1] : null;
 }
 
@@ -73,7 +91,7 @@ function onAdd(e) {
   e.preventDefault();
   const input = $('stationInput');
   const crs = findStation(input.value);
-  if (!crs) return flash('Station not found. Pick one from the list.');
+  if (!crs) return flash('Station not found or ambiguous. Pick one from the list.');
   if (selected.includes(crs)) return flash('That station is already shown.');
   if (selected.length >= MAX) return flash(`Up to ${MAX} stations.`);
   selected.push(crs);
@@ -99,13 +117,15 @@ function flash(text) {
 
 function render() {
   $('chips').innerHTML = selected.map((c) =>
-    `<span class="chip">${esc(byCrs.get(c))} (${c})<button type="button" data-crs="${c}" aria-label="Remove ${esc(byCrs.get(c))}">✕</button></span>`).join('');
+    `<span class="chip">${esc(label(c))}<button type="button" data-crs="${c}" aria-label="Remove ${esc(label(c))}">✕</button></span>`).join('');
   $('chips').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => removeStation(b.dataset.crs)));
 
   const full = selected.length >= MAX;
   $('stationInput').disabled = full;
   $('addForm').querySelector('button').disabled = full;
-  $('stationInput').placeholder = full ? 'Maximum 4 stations' : 'Add station (name or code)…';
+  $('stationInput').placeholder = full ? 'Maximum 4 stations' : 'Add rail or Tube station…';
+
+  $('tflCredit').hidden = !selected.some((c) => byId.get(c)?.kind === 'tube');
 
   const n = selected.length;
   const grid = $('grid');
@@ -121,13 +141,13 @@ function render() {
   for (const crs of selected) {
     const cell = document.createElement('div');
     cell.className = 'cell';
-    cell.innerHTML = `<div class="case"><div class="name">${esc(byCrs.get(crs))}</div><div class="board">
+    cell.innerHTML = `<div class="case"><div class="name">${esc(label(crs))}</div><div class="board">
       <div class="row r1"><span class="l"></span><span class="r"></span></div>
       <div class="call"><span></span></div>
       <div class="row r3"><span class="l"></span><span class="r"></span></div>
       <div class="clock"></div></div></div>`;
     grid.appendChild(cell);
-    const st = boards.get(crs) || { crs, data: null, next: 1, x: null, lastText: '' };
+    const st = boards.get(crs) || { crs, data: null, next: 1, plat: 0, x: null, lastText: '' };
     st.el = cell;
     st.x = null;
     boards.set(crs, st);
@@ -140,7 +160,7 @@ function render() {
 
 async function load(st) {
   try {
-    const r = await fetch(`api/departures?crs=${st.crs}`);
+    const r = await fetch(`api/departures?id=${encodeURIComponent(st.crs)}`);
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.status);
     st.data = await r.json();
     st.error = '';
@@ -156,6 +176,7 @@ function refreshAll() {
 }
 
 function paint(st) {
+  if (st.data?.kind === 'tube') return paintTube(st);
   const q = (s) => st.el.querySelector(s);
   const services = st.data?.services || [];
   if (st.error && !st.data) return showText(st, st.error);
@@ -175,6 +196,7 @@ function paint(st) {
 }
 
 function paintNext(st) {
+  if (st.data?.kind === 'tube') return paintTube(st);
   const services = st.data?.services || [];
   const q = (s) => st.el.querySelector(s);
   if (services.length < 2) {
@@ -225,17 +247,71 @@ function ordinal(n) {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
+/* ---------- Tube boards ---------- */
+// Like a real Underground platform board:
+//   1 Brixton            2 mins
+//   Southbound Platform 4 · Victoria line: Good Service.   (scrolls)
+//   2 Walthamstow Central  5 mins                          (cycles 2, 3, ...)
+// Boards at stations with several platforms rotate through them.
+
+function paintTube(st) {
+  const q = (s) => st.el.querySelector(s);
+  const platforms = (st.data.platforms || []).filter((p) => p.arrivals.length);
+  if (!platforms.length) {
+    q('.r1 .l').textContent = 'No trains due';
+    q('.r1 .r').textContent = '';
+    setCall(st, st.data.message || 'Please listen for announcements.');
+    q('.r3 .l').textContent = '';
+    q('.r3 .r').textContent = '';
+    return;
+  }
+  if (st.plat >= platforms.length) st.plat = 0;
+  const p = platforms[st.plat];
+  const now = Date.now();
+  const due = p.arrivals.filter((a) => new Date(a.expected).getTime() > now - 30000);
+  const list = due.length ? due : p.arrivals;
+  const [first] = list;
+  q('.r1 .l').textContent = `1 ${first.destination}`;
+  q('.r1 .r').textContent = mins(first.expected);
+  setCall(st, `${p.platform}${p.status ? ` · ${p.status}` : ''}`);
+  if (list.length < 2) {
+    q('.r3 .l').textContent = '';
+    q('.r3 .r').textContent = '';
+    return;
+  }
+  if (st.next >= list.length || st.next < 1) st.next = 1;
+  const a = list[st.next];
+  q('.r3 .l').textContent = `${st.next + 1} ${a.destination}`;
+  q('.r3 .r').textContent = mins(a.expected);
+}
+
+function mins(iso) {
+  const m = Math.floor((new Date(iso).getTime() - Date.now()) / 60000);
+  return m < 1 ? 'Due' : m === 1 ? '1 min' : `${m} mins`;
+}
+
+function cyclePlatform() {
+  for (const st of boards.values()) {
+    if (st.data?.kind !== 'tube' || (st.data.platforms || []).length < 2) continue;
+    st.plat += 1;
+    st.next = 1;
+    paintTube(st);
+  }
+}
+
 /* ---------- Animation ---------- */
 
 const clockFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 function tickClock() {
   const t = clockFmt.format(new Date());
   document.querySelectorAll('.clock').forEach((c) => (c.textContent = t));
+  // Tube countdowns ("3 mins") tick down between refreshes.
+  for (const st of boards.values()) if (st.data?.kind === 'tube' && st.el) paintTube(st);
 }
 
 function cycleNext() {
   for (const st of boards.values()) {
-    if (!st.data?.services?.length) continue;
+    if (!st.data?.services?.length && !st.data?.platforms?.length) continue;
     st.next += 1;
     paintNext(st);
   }

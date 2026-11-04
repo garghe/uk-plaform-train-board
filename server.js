@@ -18,6 +18,8 @@ const api = createApi({
   stations: JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'stations.json'), 'utf8')),
   apiKey: API_KEY,
   apiUrl: process.env.RDM_DEPARTURES_URL,
+  tflUrl: process.env.TFL_API_URL,
+  tflKey: process.env.TFL_APP_KEY,
 });
 
 const MIME = {

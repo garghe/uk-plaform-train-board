@@ -1,6 +1,9 @@
 // Shared API logic for the departure board.
 // Used by both the local Node server (server.js) and the Cloudflare Worker (src/worker.js).
 // Uses only web-standard APIs (fetch, Response, Intl), so it runs in both.
+// Rail stations use 3-letter CRS codes; Tube stations use TfL ids (940GZZLU...).
+
+import { createTfl, isTubeId } from './tfl.js';
 
 export const DEFAULT_API_URL =
   'https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120/GetDepBoardWithDetails';
@@ -12,17 +15,44 @@ const CACHE_MS = 20 * 1000;
  * @param {Array} opts.stations  [[name, crs, lat, lon], ...]
  * @param {string} [opts.apiKey] Rail Data Marketplace consumer key; empty = sample data
  * @param {string} [opts.apiUrl] Departures endpoint (station code is appended)
+ * @param {string} [opts.tflUrl] TfL API base URL
+ * @param {string} [opts.tflKey] TfL app key (optional)
  * @returns {(url: URL) => Promise<Response|null>} null when the path is not an API path
  */
-export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL }) {
+export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tflUrl, tflKey }) {
+  const tfl = createTfl({ baseUrl: tflUrl, appKey: tflKey });
   apiKey = String(apiKey || '').trim();
   apiUrl = String(apiUrl || DEFAULT_API_URL).replace(/\/+$/, '');
   const byCrs = new Map(stations.map(([name, crs]) => [crs, name]));
-  const stationList = stations.map(([name, crs]) => [name, crs]);
+  const railList = stations.map(([name, crs]) => [name, crs, 'rail']);
   const cache = new Map();
 
+  async function stationList() {
+    const tube = await tfl.listStations();
+    const tubeList = [...tube].map(([id, s]) => [s.name, id, 'tube']);
+    const all = [...railList, ...tubeList].sort((a, b) => a[0].localeCompare(b[0]));
+    // Only let browsers cache the list for long once the Tube part loaded.
+    return json(200, all, tubeList.length ? 'public, max-age=86400' : 'no-store');
+  }
+
+  async function tubeDepartures(id) {
+    const hit = cache.get(id);
+    if (hit && Date.now() - hit.at < CACHE_MS) return json(200, hit.data);
+    try {
+      const data = await tfl.board(id);
+      cache.set(id, { at: Date.now(), data });
+      return json(200, data);
+    } catch (err) {
+      console.error(`TfL data failed for ${id}:`, err.message);
+      if (hit) return json(200, { ...hit.data, stale: true });
+      return json(502, { error: 'Live data unavailable' });
+    }
+  }
+
   async function departures(url) {
-    const crs = (url.searchParams.get('crs') || '').toUpperCase();
+    const raw = (url.searchParams.get('id') || url.searchParams.get('crs') || '').toUpperCase();
+    if (isTubeId(raw)) return tubeDepartures(raw);
+    const crs = raw;
     if (!byCrs.has(crs)) return json(400, { error: 'Unknown station code' });
 
     const hit = cache.get(crs);
@@ -46,9 +76,9 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL }) {
 
   return async function handle(url) {
     try {
-      if (url.pathname === '/api/stations') return json(200, stationList, 'public, max-age=86400');
+      if (url.pathname === '/api/stations') return await stationList();
       if (url.pathname === '/api/departures') return await departures(url);
-      if (url.pathname === '/api/status') return json(200, { mode: apiKey ? 'live' : 'sample' });
+      if (url.pathname === '/api/status') return json(200, { mode: apiKey ? 'live' : 'sample', tube: 'live' });
       if (url.pathname.startsWith('/api/')) return json(404, { error: 'Not found' });
       return null;
     } catch (err) {
@@ -74,6 +104,7 @@ async function liveBoard(crs, byCrs, apiKey, apiUrl) {
   const b = await r.json();
   return {
     mode: 'live',
+    kind: 'rail',
     crs,
     station: b.locationName || byCrs.get(crs),
     message: firstMessage(b.nrccMessages),
@@ -119,12 +150,12 @@ function sampleBoard(crs, stations, byCrs) {
       operator: 'Sample Rail',
       cancelled: etd === 'Cancelled',
       callingPoints: calls,
-      leaves: t + delay,
+      leaves: etd === 'Cancelled' ? t : t + delay,
     });
     t += 3 + Math.floor(rand() * 12);
   }
   const upcoming = services.filter((s) => s.leaves >= now).map(({ leaves, ...s }) => s);
-  return { mode: 'sample', crs, station: byCrs.get(crs), message: '', services: upcoming.slice(0, 10) };
+  return { mode: 'sample', kind: 'rail', crs, station: byCrs.get(crs), message: '', services: upcoming.slice(0, 10) };
 }
 
 // Build a few plausible routes: a destination 15-120 km away, stopping at stations close to the straight line.

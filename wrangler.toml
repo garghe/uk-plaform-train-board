@@ -7,7 +7,9 @@ compatibility_date = "2025-09-01"
 directory = "./public"
 binding = "ASSETS"
 
-# Secret (not stored here):  RDM_API_KEY  →  npx wrangler secret put RDM_API_KEY
+# Secrets (not stored here):
+#   RDM_API_KEY  →  npx wrangler secret put RDM_API_KEY   (National Rail)
+#   TFL_APP_KEY  →  npx wrangler secret put TFL_APP_KEY   (optional, Tube)
 # Optional plain variable if your endpoint differs:
 # [vars]
 # RDM_DEPARTURES_URL = "https://api1.raildata.org.uk/.../GetDepBoardWithDetails"
