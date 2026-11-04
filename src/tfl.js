@@ -146,8 +146,11 @@ export function createTfl({ baseUrl = DEFAULT_TFL_URL, appKey = '' } = {}) {
       .map(([platform, list]) => {
         list.sort((a, b) => (a.timeToStation ?? 0) - (b.timeToStation ?? 0));
         const lineIds = [...new Set(list.map((p) => p.lineId).filter(Boolean))];
+        const tidy = tidyPlatform(platform);
         return {
-          platform: tidyPlatform(platform),
+          platform: tidy,
+          direction: capitalise(tidy.match(/\b(north|south|east|west)bound\b/i)?.[0] || ''),
+          number: tidy.match(/platform\s*([0-9]+[a-z]?)/i)?.[1] || '',
           lines: lineIds.map((l) => statuses.get(l)?.name || list.find((p) => p.lineId === l)?.lineName || l),
           status: lineIds.map((l) => statusLine(statuses.get(l))).filter(Boolean).join('  '),
           arrivals: list.slice(0, 6).map((p) => ({
@@ -183,6 +186,10 @@ function cleanName(name) {
 
 function cleanDestination(name) {
   return cleanName(name).replace(/\s+\(.*?\)$/, '').trim();
+}
+
+function capitalise(word) {
+  return word ? word[0].toUpperCase() + word.slice(1).toLowerCase() : '';
 }
 
 function platNum(name) {

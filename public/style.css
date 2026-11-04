@@ -37,6 +37,10 @@ body {
   padding: 0 6px; border-radius: 999px;
 }
 .chip button:hover { color: #fff; background: #333; }
+.chip select {
+  background: var(--page); color: var(--text); border: 1px solid #444; border-radius: 6px;
+  font: 12px Inter, system-ui, sans-serif; padding: 2px 4px; margin-left: 4px; cursor: pointer;
+}
 .add { display: flex; gap: 6px; }
 .add input {
   width: 210px; max-width: 60vw; padding: 8px 12px; border-radius: 8px; border: 1px solid #333;
@@ -76,8 +80,10 @@ body {
   background: radial-gradient(var(--led-off) 30%, transparent 31%) 0 0 / .15em .15em;
 }
 .row { padding: 0 .08em; display: flex; justify-content: space-between; gap: .6em; white-space: nowrap; overflow: hidden; }
-.row .l { overflow: hidden; }
-.row .r { flex: none; }
+.row .l { overflow: hidden; white-space: pre; }
+.row .r { flex: none; max-width: 45%; overflow: hidden; }
+.hide { display: none !important; }
+.row, .call { min-height: 1.15em; }   /* empty lines keep their height */
 .call { padding: 0 .08em; overflow: hidden; white-space: nowrap; }
 .call span { display: inline-block; will-change: transform; }
 .clock { text-align: center; font-size: 1.4em; line-height: 1.1; font-variant-numeric: tabular-nums; }
@@ -91,6 +97,9 @@ body {
 body.is-fs .top { display: none; }
 
 @media (max-width: 700px) {
+  .chips { width: 100%; }
+  .chip { max-width: 100%; white-space: normal; flex-wrap: wrap; }
+  .meta { white-space: normal; flex-wrap: wrap; }
   .n4 { grid-template: repeat(4, 1fr) / 1fr; }
   .meta { margin-left: 0; }
 }

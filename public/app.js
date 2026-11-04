@@ -3,16 +3,18 @@
 const MAX = 4;
 const REFRESH_MS = 30 * 1000;
 const CYCLE_MS = 4000;          // line 3: next train shown every 4 s
-const PLATFORM_MS = 12000;      // Tube: switch platform every 12 s
-const SCROLL_EM_PER_S = 3;      // line 2: scroll speed
+const PLATFORM_MS = 12000;      // Tube "all platforms": switch platform every 12 s
+const SCROLL_EM_PER_S = 3;      // scrolling text speed
 const STORE_KEY = 'departureBoard.stations';
+const TUBE_ID = /^940GZZ[A-Z0-9]{2,6}$/;
+const DIRECTIONS = ['northbound', 'southbound', 'eastbound', 'westbound'];
 
 const $ = (id) => document.getElementById(id);
 let stations = [];                    // [[name, id, 'rail'|'tube'], ...]
 let byId = new Map();                 // id -> { name, kind }
-let selected = [];                    // ['LBG', '940GZZLUOXC', ...]
-const boards = new Map();             // crs -> board state
-const TUBE_ID = /^940GZZ[A-Z0-9]{2,6}$/;
+let selected = [];                    // board keys: 'LBG', 'WAT:p2', '940GZZLUBNK:northbound'
+const stationData = new Map();        // id -> { data, error, detail }
+const boards = new Map();             // key -> board state
 
 init();
 
@@ -42,6 +44,23 @@ async function init() {
   requestAnimationFrame(scrollLoop);
 }
 
+/* ---------- Board keys: "ID" or "ID:filter" ---------- */
+// filter: '' = all platforms, 'p2' = platform 2, 'northbound' etc. = a direction (Tube)
+
+function parseKey(key) {
+  const [rawId, rawFilter = ''] = String(key).trim().split(':');
+  const id = rawId.toUpperCase();
+  let filter = rawFilter.toLowerCase();
+  if (!/^p[0-9]{1,2}[a-z]?$/.test(filter) && !DIRECTIONS.includes(filter)) filter = '';
+  return { id, filter, key: filter ? `${id}:${filter}` : id };
+}
+
+function filterLabel(filter) {
+  if (!filter) return 'All platforms';
+  if (filter.startsWith('p')) return `Platform ${filter.slice(1).toUpperCase()}`;
+  return filter[0].toUpperCase() + filter.slice(1);
+}
+
 /* ---------- Selection & URL ---------- */
 
 function readSelection(useStore = true) {
@@ -49,7 +68,8 @@ function readSelection(useStore = true) {
   if (!list[0] && useStore) {
     try { list = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { list = []; }
   }
-  return [...new Set(list.map((c) => String(c).trim().toUpperCase()).filter((c) => byId.has(c) || TUBE_ID.test(c)))].slice(0, MAX);
+  const keys = list.filter(Boolean).map(parseKey).filter(({ id }) => byId.has(id) || TUBE_ID.test(id)).map((k) => k.key);
+  return [...new Set(keys)].slice(0, MAX);
 }
 
 function saveSelection() {
@@ -64,6 +84,10 @@ function saveSelection() {
 function label(id) {
   const s = byId.get(id);
   return s ? `${s.name} (${s.kind === 'tube' ? 'Tube' : id})` : id;
+}
+
+function isTube(id) {
+  return byId.get(id)?.kind === 'tube' || TUBE_ID.test(id);
 }
 
 function findStation(text) {
@@ -104,6 +128,7 @@ function remember(list) {
     added = true;
   }
   if (added) fillSuggestions();
+  return added;
 }
 
 // Backup for Tube stations: ask TfL's station search through our server.
@@ -130,26 +155,36 @@ function onType() {
 async function onAdd(e) {
   e.preventDefault();
   const input = $('stationInput');
-  let crs = findStation(input.value);
-  if (!crs) {
+  let id = findStation(input.value);
+  if (!id) {
     const found = await searchTube(input.value);
     const want = input.value.replace(/\s+(\(?tube\)?|underground)$/i, '').trim().toLowerCase();
     const exact = found.filter(([n]) => n.toLowerCase() === want);
-    if (exact.length === 1 || found.length === 1) crs = (exact[0] || found[0])[1];
+    if (exact.length === 1 || found.length === 1) id = (exact[0] || found[0])[1];
     else if (found.length) return flash(`Did you mean: ${found.slice(0, 4).map(([n]) => n).join(', ')}?`);
   }
-  if (!crs) return flash('Station not found or ambiguous. Pick one from the list.');
-  if (selected.includes(crs)) return flash('That station is already shown.');
+  if (!id) return flash('Station not found or ambiguous. Pick one from the list.');
+  if (selected.includes(id)) return flash('That station is already shown.');
   if (selected.length >= MAX) return flash(`Up to ${MAX} stations.`);
-  selected.push(crs);
+  selected.push(id);
   input.value = '';
   flash('');
   saveSelection();
   render();
 }
 
-function removeStation(crs) {
-  selected = selected.filter((c) => c !== crs);
+function removeBoard(key) {
+  selected = selected.filter((k) => k !== key);
+  saveSelection();
+  render();
+}
+
+function changeFilter(oldKey, filter) {
+  const { id } = parseKey(oldKey);
+  const newKey = parseKey(`${id}:${filter}`).key;
+  if (newKey === oldKey) return;
+  if (selected.includes(newKey)) { flash('That board is already shown.'); renderChips(true); return; }
+  selected = selected.map((k) => (k === oldKey ? newKey : k));
   saveSelection();
   render();
 }
@@ -160,126 +195,158 @@ function flash(text) {
   if (text) flash.t = setTimeout(() => ($('msg').textContent = ''), 4000);
 }
 
+/* ---------- Platform filter choices ---------- */
+
+function filterOptions(key) {
+  const { id, filter } = parseKey(key);
+  const d = stationData.get(id)?.data;
+  const opts = new Set(['']);
+  if (d?.kind === 'tube') {
+    const plats = d.platforms || [];
+    for (const dir of DIRECTIONS) if (plats.some((p) => p.direction.toLowerCase() === dir)) opts.add(dir);
+    plats.map((p) => p.number).filter(Boolean).sort(numeric).forEach((n) => opts.add(`p${n.toLowerCase()}`));
+  } else if (d?.services) {
+    d.services.map((s) => s.platform).filter(Boolean).sort(numeric).forEach((n) => opts.add(`p${String(n).toLowerCase()}`));
+  }
+  opts.add(filter);
+  return [...opts].filter((f) => f === '' || parseKey(`X:${f}`).filter === f);
+}
+
+const numeric = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: true });
+
 /* ---------- Rendering ---------- */
 
+let chipsHtml = '';
+function renderChips(force = false) {
+  const html = selected.map((key) => {
+    const { id, filter } = parseKey(key);
+    const options = filterOptions(key)
+      .map((f) => `<option value="${f}"${f === filter ? ' selected' : ''}>${esc(filterLabel(f))}</option>`).join('');
+    return `<span class="chip">${esc(label(id))}`
+      + `<select data-key="${key}" aria-label="Platform for ${esc(label(id))}">${options}</select>`
+      + `<button type="button" data-key="${key}" aria-label="Remove ${esc(label(id))}">✕</button></span>`;
+  }).join('');
+  if (html === chipsHtml && !force) return;   // don't close an open menu for nothing
+  chipsHtml = html;
+  $('chips').innerHTML = html;
+  $('chips').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => removeBoard(b.dataset.key)));
+  $('chips').querySelectorAll('select').forEach((s) => s.addEventListener('change', () => changeFilter(s.dataset.key, s.value)));
+}
+
 function render() {
-  $('chips').innerHTML = selected.map((c) =>
-    `<span class="chip">${esc(label(c))}<button type="button" data-crs="${c}" aria-label="Remove ${esc(label(c))}">✕</button></span>`).join('');
-  $('chips').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => removeStation(b.dataset.crs)));
+  renderChips(true);
 
   const full = selected.length >= MAX;
   $('stationInput').disabled = full;
   $('addForm').querySelector('button').disabled = full;
   $('stationInput').placeholder = full ? 'Maximum 4 stations' : 'Add rail or Tube station…';
-
-  $('tflCredit').hidden = !selected.some((c) => TUBE_ID.test(c));
+  $('tflCredit').hidden = !selected.some((k) => isTube(parseKey(k).id));
 
   const n = selected.length;
   const grid = $('grid');
   grid.className = 'grid ' + (n <= 1 ? 'n1' : n === 2 ? 'n2' : 'n4');
-
-  for (const crs of [...boards.keys()]) if (!selected.includes(crs)) boards.delete(crs);
-
+  boards.clear();
   grid.innerHTML = '';
   if (!n) {
     grid.innerHTML = '<div class="cell"><div class="empty">Type a station name above to show its departures</div></div>';
     return;
   }
-  for (const crs of selected) {
+  for (const key of selected) {
+    const { id, filter } = parseKey(key);
     const cell = document.createElement('div');
     cell.className = 'cell';
-    cell.innerHTML = `<div class="case"><div class="name">${esc(label(crs))}</div><div class="board">
+    cell.innerHTML = `<div class="case"><div class="name"></div><div class="board">
       <div class="row r1"><span class="l"></span><span class="r"></span></div>
+      <div class="row r2 hide"><span class="l"></span><span class="r"></span></div>
       <div class="call"><span></span></div>
       <div class="row r3"><span class="l"></span><span class="r"></span></div>
       <div class="clock"></div></div></div>`;
     grid.appendChild(cell);
-    const st = boards.get(crs) || { crs, data: null, next: 1, plat: 0, x: null, lastText: '' };
-    st.el = cell;
-    st.x = null;
-    boards.set(crs, st);
-    if (st.data) paint(st); else showText(st, 'Loading…');
-    if (!st.data) load(st);
+    const b = { key, id, filter, el: cell, next: 1, plat: 0, x: null, lastText: '', mode: 'trains' };
+    boards.set(key, b);
+    paint(b);
   }
   if (n === 3) grid.insertAdjacentHTML('beforeend', '<div class="cell"><div class="empty">+ Add a 4th station</div></div>');
+  for (const id of new Set(selected.map((k) => parseKey(k).id))) if (!stationData.get(id)?.data) load(id);
   tickClock();
 }
 
-async function load(st) {
+async function load(id) {
+  const entry = stationData.get(id) || {};
   try {
-    const r = await fetch(`api/departures?id=${encodeURIComponent(st.crs)}`);
+    const r = await fetch(`api/departures?id=${encodeURIComponent(id)}`);
     if (!r.ok) {
       const body = await r.json().catch(() => ({}));
       throw new Error(body.detail || body.error || `HTTP ${r.status}`);
     }
-    st.data = await r.json();
-    st.error = '';
-    st.detail = '';
+    entry.data = await r.json();
+    entry.error = '';
+    entry.detail = '';
   } catch (err) {
-    st.error = 'Unable to load departures';
-    st.detail = err.message;
-    console.warn(st.crs, err);
+    entry.error = 'Unable to load departures';
+    entry.detail = err.message;
+    console.warn(id, err);
   }
-  if (boards.get(st.crs) === st) paint(st);
+  stationData.set(id, entry);
+  if (entry.data?.kind === 'tube' && entry.data.station && remember([[entry.data.station, id, 'tube']])) render();
+  for (const b of boards.values()) if (b.id === id) paint(b);
+  renderChips();
 }
 
 function refreshAll() {
-  for (const st of boards.values()) load(st);
+  for (const id of new Set(selected.map((k) => parseKey(k).id))) load(id);
 }
 
-function paint(st) {
-  if (st.data?.kind === 'tube') {
-    if (!byId.has(st.crs) && st.data.station) { remember([[st.data.station, st.crs, 'tube']]); render(); return; }
-    return paintTube(st);
-  }
-  const q = (s) => st.el.querySelector(s);
-  const services = st.data?.services || [];
-  if (st.error && !st.data) return showText(st, st.error, st.detail);
+/* ---------- Painting ---------- */
+
+function rows(b) {
+  const q = (s) => b.el.querySelector(s);
+  const set = (row, l = '', r = '') => { q(`.${row} .l`).textContent = l; q(`.${row} .r`).textContent = r; };
+  const show = (sel, on) => q(sel).classList.toggle('hide', !on);
+  return { set, show };
+}
+
+function paint(b) {
+  const s = stationData.get(b.id);
+  b.el.querySelector('.name').textContent = `${label(b.id)}${b.filter ? ` · ${filterLabel(b.filter)}` : ''}`;
+  if (!s?.data) return showText(b, s?.error || 'Loading…', s?.detail || '');
+  return s.data.kind === 'tube' ? paintTube(b, s.data) : paintRail(b, s.data);
+}
+
+function showText(b, text, detail = '') {
+  const { set, show } = rows(b);
+  set('r1', text);
+  show('.r2', false);
+  show('.call', true);
+  setCall(b, detail);
+  show('.r3', true);
+  set('r3');
+}
+
+// Rail: "11:05 4  Romford      Delayed" / scrolling calling points / "2nd 11:20 6  Woburn Sands"
+function paintRail(b, d) {
+  const { set, show } = rows(b);
+  show('.r2', false);
+  show('.call', true);
+  show('.r3', true);
+  const want = b.filter.startsWith('p') ? b.filter.slice(1) : '';
+  const services = (d.services || []).filter((s) => !want || String(s.platform).toLowerCase() === want);
   if (!services.length) {
-    q('.r1 .l').textContent = 'No services';
-    q('.r1 .r').textContent = '';
-    setCall(st, st.data?.message || 'Please check timetable for services.');
-    q('.r3 .l').textContent = '';
-    q('.r3 .r').textContent = '';
+    set('r1', want ? `No trains from platform ${want.toUpperCase()}` : 'No services');
+    setCall(b, d.message || 'Please check timetable for services.');
+    set('r3');
     return;
   }
   const first = services[0];
-  q('.r1 .l').textContent = `${first.std} ${first.destination}`;
-  q('.r1 .r').textContent = status(first);
-  setCall(st, callText(first));
-  paintNext(st);
+  set('r1', `${first.std} ${plat(first.platform)} ${first.destination}`, status(first));
+  setCall(b, callText(first));
+  if (services.length < 2) return set('r3');
+  if (b.next >= services.length || b.next < 1) b.next = 1;
+  const s = services[b.next];
+  set('r3', `${ordinal(b.next + 1)} ${s.std} ${plat(s.platform)} ${s.destination}`, status(s));
 }
 
-function paintNext(st) {
-  if (st.data?.kind === 'tube') return paintTube(st);
-  const services = st.data?.services || [];
-  const q = (s) => st.el.querySelector(s);
-  if (services.length < 2) {
-    q('.r3 .l').textContent = '';
-    q('.r3 .r').textContent = '';
-    return;
-  }
-  if (st.next >= services.length || st.next < 1) st.next = 1;
-  const s = services[st.next];
-  q('.r3 .l').textContent = `${ordinal(st.next + 1)} ${s.std} ${s.destination}`;
-  q('.r3 .r').textContent = status(s);
-}
-
-function showText(st, text, detail = '') {
-  const q = (s) => st.el.querySelector(s);
-  q('.r1 .l').textContent = text;
-  q('.r1 .r').textContent = '';
-  setCall(st, detail);
-  q('.r3 .l').textContent = '';
-  q('.r3 .r').textContent = '';
-}
-
-function setCall(st, text) {
-  if (text === st.lastText && st.x !== null) return;   // keep scrolling smoothly across refreshes
-  st.lastText = text;
-  st.el.querySelector('.call span').textContent = text;
-  st.x = null;                                         // restart from the right edge
-}
+const plat = (p) => String(p || '').padEnd(2, ' ');
 
 function callText(s) {
   if (s.cancelled) return 'This train has been cancelled.';
@@ -302,42 +369,56 @@ function ordinal(n) {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
-/* ---------- Tube boards ---------- */
-// Like a real Underground platform board:
-//   1 Brixton            2 mins
-//   Southbound Platform 4 · Victoria line: Good Service.   (scrolls)
-//   2 Walthamstow Central  5 mins                          (cycles 2, 3, ...)
-// Boards at stations with several platforms rotate through them.
+// Tube, like an Underground platform board:
+//   Westbound · Platform 1          Central
+//   1 Ealing Broadway                2 mins
+//   2 West Ruislip                   5 mins   (cycles 2, 3, … then scrolls the line status)
+//   11:25:09
+function tubePlatforms(b, d) {
+  const f = b.filter;
+  return (d.platforms || []).filter((p) => p.arrivals.length && (!f
+    || (f.startsWith('p') ? p.number.toLowerCase() === f.slice(1) : p.direction.toLowerCase() === f)));
+}
 
-function paintTube(st) {
-  const q = (s) => st.el.querySelector(s);
-  const platforms = (st.data.platforms || []).filter((p) => p.arrivals.length);
-  if (!platforms.length) {
-    q('.r1 .l').textContent = 'No trains due';
-    q('.r1 .r').textContent = '';
-    setCall(st, st.data.message || 'Please listen for announcements.');
-    q('.r3 .l').textContent = '';
-    q('.r3 .r').textContent = '';
-    return;
-  }
-  if (st.plat >= platforms.length) st.plat = 0;
-  const p = platforms[st.plat];
+function upcoming(p) {
   const now = Date.now();
   const due = p.arrivals.filter((a) => new Date(a.expected).getTime() > now - 30000);
-  const list = due.length ? due : p.arrivals;
-  const [first] = list;
-  q('.r1 .l').textContent = `1 ${first.destination}`;
-  q('.r1 .r').textContent = mins(first.expected);
-  setCall(st, `${p.platform}${p.status ? ` · ${p.status}` : ''}`);
-  if (list.length < 2) {
-    q('.r3 .l').textContent = '';
-    q('.r3 .r').textContent = '';
+  return due.length ? due : p.arrivals;
+}
+
+function paintTube(b, d) {
+  const { set, show } = rows(b);
+  const platforms = tubePlatforms(b, d);
+  if (!platforms.length) {
+    set('r1', b.filter ? `No trains due · ${filterLabel(b.filter)}` : 'No trains due');
+    show('.r2', false);
+    show('.call', true);
+    setCall(b, d.message || 'Please listen for announcements.');
+    show('.r3', false);
     return;
   }
-  if (st.next >= list.length || st.next < 1) st.next = 1;
-  const a = list[st.next];
-  q('.r3 .l').textContent = `${st.next + 1} ${a.destination}`;
-  q('.r3 .r').textContent = mins(a.expected);
+  if (b.plat >= platforms.length) b.plat = 0;
+  const p = platforms[b.plat];
+  const list = upcoming(p);
+  const header = [p.direction, p.number ? `Platform ${p.number}` : (p.direction ? '' : p.platform)].filter(Boolean).join(' · ');
+  set('r1', header, p.lines.join(' / '));
+  show('.r2', true);
+  set('r2', `1 ${list[0].destination}`, mins(list[0].expected));
+
+  const statusText = p.status || d.message || '';
+  if (b.mode === 'status' && statusText) {
+    show('.r3', false);
+    show('.call', true);
+    setCall(b, statusText);
+    return;
+  }
+  b.mode = 'trains';
+  show('.call', false);
+  show('.r3', true);
+  if (list.length < 2) return set('r3');
+  if (b.next >= list.length || b.next < 1) b.next = 1;
+  const a = list[b.next];
+  set('r3', `${b.next + 1} ${a.destination}`, mins(a.expected));
 }
 
 function mins(iso) {
@@ -345,30 +426,50 @@ function mins(iso) {
   return m < 1 ? 'Due' : m === 1 ? '1 min' : `${m} mins`;
 }
 
-function cyclePlatform() {
-  for (const st of boards.values()) {
-    if (st.data?.kind !== 'tube' || (st.data.platforms || []).length < 2) continue;
-    st.plat += 1;
-    st.next = 1;
-    paintTube(st);
-  }
+function setCall(b, text) {
+  if (text === b.lastText && b.x !== null) return;   // keep scrolling smoothly across refreshes
+  b.lastText = text;
+  b.el.querySelector('.call span').textContent = text;
+  b.x = null;                                         // restart from the right edge
 }
 
-/* ---------- Animation ---------- */
+/* ---------- Timers & animation ---------- */
 
 const clockFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
 function tickClock() {
   const t = clockFmt.format(new Date());
   document.querySelectorAll('.clock').forEach((c) => (c.textContent = t));
   // Tube countdowns ("3 mins") tick down between refreshes.
-  for (const st of boards.values()) if (st.data?.kind === 'tube' && st.el) paintTube(st);
+  for (const b of boards.values()) if (stationData.get(b.id)?.data?.kind === 'tube') paint(b);
 }
 
 function cycleNext() {
-  for (const st of boards.values()) {
-    if (!st.data?.services?.length && !st.data?.platforms?.length) continue;
-    st.next += 1;
-    paintNext(st);
+  for (const b of boards.values()) {
+    const d = stationData.get(b.id)?.data;
+    if (!d) continue;
+    if (d.kind === 'tube') {
+      if (b.mode === 'status') continue;               // ends when the status has scrolled past
+      const p = tubePlatforms(b, d)[b.plat];
+      if (!p) continue;
+      b.next += 1;
+      if (b.next >= upcoming(p).length) {
+        b.next = 1;
+        if (p.status || d.message) { b.mode = 'status'; b.x = null; b.lastText = ''; }
+      }
+    } else {
+      b.next += 1;
+    }
+    paint(b);
+  }
+}
+
+function cyclePlatform() {
+  for (const b of boards.values()) {
+    const d = stationData.get(b.id)?.data;
+    if (d?.kind !== 'tube' || b.mode === 'status' || tubePlatforms(b, d).length < 2) continue;
+    b.plat += 1;
+    b.next = 1;
+    paint(b);
   }
 }
 
@@ -376,16 +477,19 @@ let lastFrame = performance.now();
 function scrollLoop(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
-  for (const st of boards.values()) {
-    const box = st.el?.querySelector('.call');
-    const span = box?.firstElementChild;
-    if (!span || !span.textContent) continue;
+  for (const b of boards.values()) {
+    const box = b.el.querySelector('.call');
+    const span = box.firstElementChild;
+    if (box.classList.contains('hide') || !span.textContent) continue;
     const em = parseFloat(getComputedStyle(box).fontSize) || 16;
     const boxW = box.clientWidth;
-    if (st.x === null) st.x = boxW;
-    st.x -= SCROLL_EM_PER_S * em * dt;
-    if (st.x < -span.offsetWidth) st.x = boxW;
-    span.style.transform = `translateX(${Math.round(st.x)}px)`;
+    if (b.x === null) b.x = boxW;
+    b.x -= SCROLL_EM_PER_S * em * dt;
+    if (b.x < -span.offsetWidth) {
+      b.x = boxW;
+      if (b.mode === 'status') { b.mode = 'trains'; b.next = 1; paint(b); }   // Tube: back to the trains
+    }
+    span.style.transform = `translateX(${Math.round(b.x)}px)`;
   }
   requestAnimationFrame(scrollLoop);
 }

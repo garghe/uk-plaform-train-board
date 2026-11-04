@@ -8,9 +8,9 @@ A web page that looks like the orange dot-matrix departure boards on UK railway 
 
 Each board has four lines, like the real ones:
 
-1. **Next train:** time, destination and status (`On time`, `Exp 14:44`, `Delayed`, `Cancelled`).
+1. **Next train:** time, platform, destination and status, e.g. `11:05 4 Romford  Delayed` (`On time`, `Exp 14:44`, `Delayed`, `Cancelled`). The platform is blank until it's announced.
 2. **Calling at:** the stops, scrolling right to left.
-3. **Following trains:** `2nd`, `3rd`, `4th`… taking turns every 4 seconds.
+3. **Following trains:** `2nd 11:20 6 Woburn Sands`, `3rd`, `4th`… taking turns every 4 seconds.
 4. **Clock:** UK time (HH:MM:SS).
 
 Data refreshes every 30 seconds.
@@ -19,12 +19,20 @@ Data refreshes every 30 seconds.
 
 London Underground stations get a Tube-style board, like the ones on the platforms:
 
-1. **Next train:** `1 Brixton` with minutes to go (`2 mins`, `Due`).
-2. **Platform and line status**, scrolling, e.g. `Southbound Platform 4 · Victoria line: Good Service.`
-3. **Following trains:** `2 …`, `3 …` taking turns.
+1. **Direction and platform**, with the line on the right, e.g. `Westbound · Platform 1   Central`.
+2. **Next train:** `1 Ealing Broadway` with minutes to go (`2 mins`, `Due`).
+3. **Following trains:** `2 …`, `3 …` taking turns, then the line status scrolls past (e.g. `Central line: Minor delays…`).
 4. **Clock.**
 
-Stations with several platforms rotate through them every 12 seconds. Minutes count down between refreshes.
+With **All platforms**, a Tube board rotates through the station's platforms every 12 seconds. Minutes count down between refreshes.
+
+### Choosing a platform or direction
+
+Each station tag has a menu: **All platforms**, a single **platform** (rail and Tube), or a **direction** (Tube: Northbound, Southbound, Eastbound, Westbound). The board then shows only those trains, like a real platform display. The menu lists the platforms that currently have trains. National Rail data has no direction, so rail boards filter by platform only.
+
+The choice is kept in the web address, e.g. `?stations=WAT:p2,940GZZLUBNK:northbound`. You can show the same station twice with different choices, e.g. Bank Northbound and Bank Southbound.
+
+![Platform and direction](docs/screenshot-platforms.png)
 
 ![Rail and Tube boards together](docs/screenshot-rail-and-tube.png)
 
