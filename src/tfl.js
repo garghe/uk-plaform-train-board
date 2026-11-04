@@ -19,44 +19,69 @@ export function createTfl({ baseUrl = DEFAULT_TFL_URL, appKey = '' } = {}) {
   let stations = null;        // Map id -> { name, lines: Set }
   let stationsAt = 0;
   let stationsPending = null;
+  let lastError = '';
   let status = null;          // Map lineId -> { name, text }
   let statusAt = 0;
 
   async function get(path) {
     const url = new URL(baseUrl + path);
     if (appKey) url.searchParams.set('app_key', appKey);
-    const r = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(10000) });
+    const r = await fetch(url, {
+      headers: { accept: 'application/json', 'user-agent': 'uk-platform-train-board/1.2' },
+      signal: AbortSignal.timeout(15000),
+    });
     if (!r.ok) throw new Error(`TfL HTTP ${r.status}`);
     return r.json();
   }
 
-  // All Tube stations, built from each line's stop list. Cached for a day.
+  // All Tube stations, built from each line's stop list. Cached for a day once
+  // every line loaded; lines that failed (e.g. rate limit) are retried after 5 min.
+  let loadedLines = new Set();
   async function listStations() {
-    const fresh = stations && Date.now() - stationsAt < (stations.size ? STATIONS_TTL : STATIONS_RETRY);
+    const complete = loadedLines.size === TUBE_LINES.length;
+    const fresh = stations && Date.now() - stationsAt < (complete ? STATIONS_TTL : STATIONS_RETRY);
     if (fresh) return stations;
     stationsPending ||= (async () => {
-      const map = new Map();
-      try {
-        const perLine = await Promise.all(TUBE_LINES.map((line) => get(`/Line/${line}/StopPoints`).then((stops) => [line, stops])));
-        for (const [line, stops] of perLine) {
-          for (const s of stops || []) {
-            const id = s.naptanId || s.id;
-            if (!isTubeId(id || '')) continue;
-            const entry = map.get(id) || { name: cleanName(s.commonName || id), lines: new Set() };
-            entry.lines.add(line);
-            map.set(id, entry);
-          }
+      const map = complete ? new Map() : new Map(stations || []);
+      const todo = complete ? TUBE_LINES : TUBE_LINES.filter((l) => !loadedLines.has(l));
+      if (complete) loadedLines = new Set();
+      const results = await Promise.allSettled(todo.map((line) => get(`/Line/${line}/StopPoints`)));
+      const errors = [];
+      results.forEach((r, i) => {
+        const line = todo[i];
+        if (r.status !== 'fulfilled') { errors.push(`${line}: ${r.reason?.message || r.reason}`); return; }
+        loadedLines.add(line);
+        for (const s of r.value || []) {
+          const id = s.naptanId || s.id;
+          if (!isTubeId(id || '')) continue;
+          const entry = map.get(id) || { name: cleanName(s.commonName || id), lines: new Set() };
+          entry.lines.add(line);
+          map.set(id, entry);
         }
-      } catch (err) {
-        console.error('TfL station list failed:', err.message);
-      }
-      // Keep the last good list if this attempt failed.
-      if (map.size || !stations) { stations = map; }
+      });
+      lastError = errors.length ? `Station list: ${errors.join('; ')}` : '';
+      if (lastError) console.error('TfL', lastError);
+      if (map.size || !stations) stations = map;   // keep the last good list if everything failed
       stationsAt = Date.now();
       stationsPending = null;
       return stations;
     })();
     return stationsPending;
+  }
+
+  // Backup when the full list is not available: TfL's own station search.
+  async function search(query) {
+    const q = String(query || '').trim().slice(0, 60);
+    if (q.length < 2) return [];
+    const res = await get(`/StopPoint/Search/${encodeURIComponent(q)}?modes=tube`);
+    return (res?.matches || [])
+      .filter((m) => isTubeId(m.id || ''))
+      .map((m) => [cleanName(m.name || m.id), m.id, 'tube'])
+      .slice(0, 10);
+  }
+
+  function info() {
+    return { stations: stations ? stations.size : 0, linesLoaded: loadedLines.size, lastError };
   }
 
   async function lineStatus() {
@@ -118,7 +143,7 @@ export function createTfl({ baseUrl = DEFAULT_TFL_URL, appKey = '' } = {}) {
     };
   }
 
-  return { listStations, board };
+  return { listStations, board, search, info };
 }
 
 function statusLine(s) {

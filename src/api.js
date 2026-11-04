@@ -31,8 +31,8 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
     const tube = await tfl.listStations();
     const tubeList = [...tube].map(([id, s]) => [s.name, id, 'tube']);
     const all = [...railList, ...tubeList].sort((a, b) => a[0].localeCompare(b[0]));
-    // Only let browsers cache the list for long once the Tube part loaded.
-    return json(200, all, tubeList.length ? 'public, max-age=86400' : 'no-store');
+    // Only let browsers cache the list once the Tube part loaded.
+    return json(200, all, tubeList.length ? 'public, max-age=3600' : 'no-store');
   }
 
   async function tubeDepartures(id) {
@@ -78,7 +78,14 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
     try {
       if (url.pathname === '/api/stations') return await stationList();
       if (url.pathname === '/api/departures') return await departures(url);
-      if (url.pathname === '/api/status') return json(200, { mode: apiKey ? 'live' : 'sample', tube: 'live' });
+      if (url.pathname === '/api/search') {
+        try { return json(200, await tfl.search(url.searchParams.get('q'))); }
+        catch (err) { console.error('TfL search failed:', err.message); return json(502, { error: 'Search unavailable' }); }
+      }
+      if (url.pathname === '/api/status') {
+        if (url.searchParams.has('check')) await tfl.listStations();
+        return json(200, { mode: apiKey ? 'live' : 'sample', tube: tfl.info() });
+      }
       if (url.pathname.startsWith('/api/')) return json(404, { error: 'Not found' });
       return null;
     } catch (err) {

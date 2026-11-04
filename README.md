@@ -84,6 +84,12 @@ Tube times come from the free [TfL Unified API](https://api.tfl.gov.uk). It work
 
 For a higher limit, register at the [TfL API portal](https://api-portal.tfl.gov.uk/) and set `TFL_APP_KEY` (in `.env` locally, or as a Cloudflare Secret). The Tube station list is downloaded from TfL when the server starts and kept for a day.
 
+### If a Tube station doesn't show up
+
+Open `/api/status?check` on your site (e.g. `https://…workers.dev/api/status?check`). The `tube` part shows how many Tube stations loaded and the last error from TfL. For example, `TfL HTTP 429` means TfL's request limit was hit; adding a `TFL_APP_KEY` fixes it. Lines that fail are retried after 5 minutes.
+
+Even without the list, pressing **+ Add** on a Tube station name (e.g. `Oxford Circus`) asks TfL's own station search, so the board can still be added.
+
 ## Deploying to Cloudflare
 
 The app runs as a **Cloudflare Worker**: Cloudflare hosts the page files in `public/`, and a small Worker (`src/worker.js`) answers the `/api/...` calls. The free plan is enough.
@@ -156,7 +162,8 @@ API endpoints (same on both versions):
 |---|---|
 | `/api/stations` | All stations as `[name, id, "rail" or "tube"]` |
 | `/api/departures?id=LBG` | Next departures (rail: CRS code, Tube: TfL id such as `940GZZLUOXC`) |
-| `/api/status` | Rail mode, `live` or `sample` |
+| `/api/search?q=oxford` | Tube station search via TfL (backup when the list is missing) |
+| `/api/status` | Rail mode (`live` or `sample`) and Tube list health; add `?check` to load the list first |
 
 ## Credits
 

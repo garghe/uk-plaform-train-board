@@ -12,13 +12,17 @@ let stations = [];                    // [[name, id, 'rail'|'tube'], ...]
 let byId = new Map();                 // id -> { name, kind }
 let selected = [];                    // ['LBG', '940GZZLUOXC', ...]
 const boards = new Map();             // crs -> board state
+const TUBE_ID = /^940GZZ[A-Z0-9]{2,6}$/;
 
 init();
 
 async function init() {
-  stations = await (await fetch('api/stations')).json();
+  try {
+    stations = await (await fetch('api/stations?v=3')).json();   // ?v= skips old cached copies
+  } catch { stations = []; }
   byId = new Map(stations.map(([name, id, kind]) => [id, { name, kind }]));
-  $('stationList').innerHTML = stations.map(([n, id]) => `<option value="${esc(label(id))}">`).join('');
+  fillSuggestions();
+  $('stationInput').addEventListener('input', onType);
 
   fetch('api/status').then((r) => r.json()).then(({ mode }) => {
     $('mode').innerHTML = mode === 'live' ? '<span class="live">● Live data</span>' : '<span class="sample">● Sample rail data</span>';
@@ -45,7 +49,7 @@ function readSelection(useStore = true) {
   if (!list[0] && useStore) {
     try { list = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { list = []; }
   }
-  return [...new Set(list.map((c) => String(c).trim().toUpperCase()).filter((c) => byId.has(c)))].slice(0, MAX);
+  return [...new Set(list.map((c) => String(c).trim().toUpperCase()).filter((c) => byId.has(c) || TUBE_ID.test(c)))].slice(0, MAX);
 }
 
 function saveSelection() {
@@ -87,10 +91,53 @@ function findStation(text) {
   return contains.length === 1 ? contains[0][1] : null;
 }
 
-function onAdd(e) {
+function fillSuggestions() {
+  $('stationList').innerHTML = stations.map(([, id]) => `<option value="${esc(label(id))}">`).join('');
+}
+
+function remember(list) {
+  let added = false;
+  for (const [name, id, kind] of list) {
+    if (byId.has(id)) continue;
+    byId.set(id, { name, kind });
+    stations.push([name, id, kind]);
+    added = true;
+  }
+  if (added) fillSuggestions();
+}
+
+// Backup for Tube stations: ask TfL's station search through our server.
+async function searchTube(q) {
+  q = q.replace(/\s+(\(?tube\)?|underground)$/i, '').trim();
+  if (q.length < 2) return [];
+  try {
+    const r = await fetch(`api/search?q=${encodeURIComponent(q)}`);
+    if (!r.ok) return [];
+    const found = await r.json();
+    remember(found);
+    return found;
+  } catch { return []; }
+}
+
+// While typing, top up the suggestions from TfL if the Tube list is missing.
+function onType() {
+  clearTimeout(onType.t);
+  const q = $('stationInput').value;
+  if (q.length < 3 || stations.some(([, , k]) => k === 'tube')) return;
+  onType.t = setTimeout(() => searchTube(q), 300);
+}
+
+async function onAdd(e) {
   e.preventDefault();
   const input = $('stationInput');
-  const crs = findStation(input.value);
+  let crs = findStation(input.value);
+  if (!crs) {
+    const found = await searchTube(input.value);
+    const want = input.value.replace(/\s+(\(?tube\)?|underground)$/i, '').trim().toLowerCase();
+    const exact = found.filter(([n]) => n.toLowerCase() === want);
+    if (exact.length === 1 || found.length === 1) crs = (exact[0] || found[0])[1];
+    else if (found.length) return flash(`Did you mean: ${found.slice(0, 4).map(([n]) => n).join(', ')}?`);
+  }
   if (!crs) return flash('Station not found or ambiguous. Pick one from the list.');
   if (selected.includes(crs)) return flash('That station is already shown.');
   if (selected.length >= MAX) return flash(`Up to ${MAX} stations.`);
@@ -125,7 +172,7 @@ function render() {
   $('addForm').querySelector('button').disabled = full;
   $('stationInput').placeholder = full ? 'Maximum 4 stations' : 'Add rail or Tube station…';
 
-  $('tflCredit').hidden = !selected.some((c) => byId.get(c)?.kind === 'tube');
+  $('tflCredit').hidden = !selected.some((c) => TUBE_ID.test(c));
 
   const n = selected.length;
   const grid = $('grid');
@@ -176,7 +223,10 @@ function refreshAll() {
 }
 
 function paint(st) {
-  if (st.data?.kind === 'tube') return paintTube(st);
+  if (st.data?.kind === 'tube') {
+    if (!byId.has(st.crs) && st.data.station) { remember([[st.data.station, st.crs, 'tube']]); render(); return; }
+    return paintTube(st);
+  }
   const q = (s) => st.el.querySelector(s);
   const services = st.data?.services || [];
   if (st.error && !st.data) return showText(st, st.error);
