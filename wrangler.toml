@@ -1,0 +1,13 @@
+# Cloudflare Workers config. Deploy with:  npm run deploy
+name = "uk-platform-train-board"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# Secret (not stored here):  RDM_API_KEY  →  npx wrangler secret put RDM_API_KEY
+# Optional plain variable if your endpoint differs:
+# [vars]
+# RDM_DEPARTURES_URL = "https://api1.raildata.org.uk/.../GetDepBoardWithDetails"
