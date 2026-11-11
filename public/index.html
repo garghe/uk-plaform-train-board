@@ -14,7 +14,9 @@
     <div id="chips" class="chips"></div>
     <form id="addForm" class="add" autocomplete="off">
       <div class="searchbox">
-        <input id="stationInput" placeholder="Station, Tube or bus stop…" aria-label="Station, Tube station or bus stop"
+        <input id="stationInput" type="search" enterkeyhint="search" placeholder="Station, Tube or bus stop…"
+          aria-label="Station, Tube station or bus stop"
+          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
           role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="dd">
         <div id="dd" class="dd" role="listbox" hidden></div>
       </div>
