@@ -3,7 +3,7 @@
 // Uses only web-standard APIs (fetch, Response, Intl), so it runs in both.
 // Rail stations use 3-letter CRS codes; Tube stations use TfL ids (940GZZLU...).
 
-import { createTfl, isTubeId } from './tfl.js';
+import { createTfl, isTubeId, isBusId } from './tfl.js';
 
 export const DEFAULT_API_URL =
   'https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120/GetDepBoardWithDetails';
@@ -35,11 +35,11 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
     return json(200, all, tubeList.length ? 'public, max-age=3600' : 'no-store');
   }
 
-  async function tubeDepartures(id) {
+  async function tflDepartures(id, load) {
     const hit = cache.get(id);
     if (hit && Date.now() - hit.at < CACHE_MS) return json(200, hit.data);
     try {
-      const data = await tfl.board(id);
+      const data = await load(id);
       cache.set(id, { at: Date.now(), data });
       return json(200, data);
     } catch (err) {
@@ -51,7 +51,8 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
 
   async function departures(url) {
     const raw = (url.searchParams.get('id') || url.searchParams.get('crs') || '').toUpperCase();
-    if (isTubeId(raw)) return tubeDepartures(raw);
+    if (isTubeId(raw)) return tflDepartures(raw, tfl.board);
+    if (isBusId(raw)) return tflDepartures(raw, tfl.busBoard);
     const crs = raw;
     if (!byCrs.has(crs)) return json(400, { error: 'Unknown station code' });
 
@@ -79,7 +80,8 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
       if (url.pathname === '/api/stations') return await stationList();
       if (url.pathname === '/api/departures') return await departures(url);
       if (url.pathname === '/api/search') {
-        try { return json(200, await tfl.search(url.searchParams.get('q'))); }
+        const mode = url.searchParams.get('mode') === 'bus' ? 'bus' : 'tube';
+        try { return json(200, await tfl.search(url.searchParams.get('q'), mode)); }
         catch (err) { console.error('TfL search failed:', err.message); return json(502, { error: 'Search unavailable' }); }
       }
       if (url.pathname === '/api/status') {

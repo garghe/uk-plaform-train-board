@@ -7,11 +7,14 @@ const PLATFORM_MS = 12000;      // Tube "all platforms": switch platform every 1
 const SCROLL_EM_PER_S = 3;      // scrolling text speed
 const STORE_KEY = 'departureBoard.stations';
 const TUBE_ID = /^940GZZ[A-Z0-9]{2,6}$/;
+const BUS_ID = /^490(?!G)[0-9A-Z]{3,12}$/;
+const BUS_WORDS = /\s+(\(?bus\)?|bus stop)$/i;
+const TUBE_WORDS = /\s+(\(?tube\)?|underground)$/i;
 const DIRECTIONS = ['northbound', 'southbound', 'eastbound', 'westbound'];
 
 const $ = (id) => document.getElementById(id);
-let stations = [];                    // [[name, id, 'rail'|'tube'], ...]
-let byId = new Map();                 // id -> { name, kind }
+let stations = [];                    // [[name, id, 'rail'|'tube'|'bus', towards?], ...]
+let byId = new Map();                 // id -> { name, kind, towards }
 let selected = [];                    // board keys: 'LBG', 'WAT:p2', '940GZZLUBNK:northbound'
 const stationData = new Map();        // id -> { data, error, detail }
 const boards = new Map();             // key -> board state
@@ -22,7 +25,7 @@ async function init() {
   try {
     stations = await (await fetch('api/stations?v=3')).json();   // ?v= skips old cached copies
   } catch { stations = []; }
-  byId = new Map(stations.map(([name, id, kind]) => [id, { name, kind }]));
+  byId = new Map(stations.map(([name, id, kind, towards]) => [id, { name, kind, towards }]));
   fillSuggestions();
   $('stationInput').addEventListener('input', onType);
 
@@ -45,19 +48,20 @@ async function init() {
 }
 
 /* ---------- Board keys: "ID" or "ID:filter" ---------- */
-// filter: '' = all platforms, 'p2' = platform 2, 'northbound' etc. = a direction (Tube)
+// filter: '' = all, 'p2' = platform 2, 'northbound' etc. = a direction (Tube), 'r88' = route 88 (bus)
 
 function parseKey(key) {
   const [rawId, rawFilter = ''] = String(key).trim().split(':');
   const id = rawId.toUpperCase();
   let filter = rawFilter.toLowerCase();
-  if (!/^p[0-9]{1,2}[a-z]?$/.test(filter) && !DIRECTIONS.includes(filter)) filter = '';
+  if (!/^p[0-9]{1,2}[a-z]?$/.test(filter) && !/^r[0-9a-z]{1,5}$/.test(filter) && !DIRECTIONS.includes(filter)) filter = '';
   return { id, filter, key: filter ? `${id}:${filter}` : id };
 }
 
-function filterLabel(filter) {
-  if (!filter) return 'All platforms';
+function filterLabel(filter, id = '') {
+  if (!filter) return kindOf(id) === 'bus' ? 'All routes' : 'All platforms';
   if (filter.startsWith('p')) return `Platform ${filter.slice(1).toUpperCase()}`;
+  if (filter.startsWith('r')) return `Route ${filter.slice(1).toUpperCase()}`;
   return filter[0].toUpperCase() + filter.slice(1);
 }
 
@@ -68,7 +72,7 @@ function readSelection(useStore = true) {
   if (!list[0] && useStore) {
     try { list = JSON.parse(localStorage.getItem(STORE_KEY) || '[]'); } catch { list = []; }
   }
-  const keys = list.filter(Boolean).map(parseKey).filter(({ id }) => byId.has(id) || TUBE_ID.test(id)).map((k) => k.key);
+  const keys = list.filter(Boolean).map(parseKey).filter(({ id }) => byId.has(id) || TUBE_ID.test(id) || BUS_ID.test(id)).map((k) => k.key);
   return [...new Set(keys)].slice(0, MAX);
 }
 
@@ -80,14 +84,28 @@ function saveSelection() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(selected)); } catch { /* storage unavailable */ }
 }
 
-// "Bath Spa (BTH)" for rail, "Oxford Circus (Tube)" for the Underground.
+// Search list entries: "Bath Spa (BTH)", "Oxford Circus (Tube)", "Trafalgar Square · Stop S → Westminster (Bus)"
 function label(id) {
   const s = byId.get(id);
-  return s ? `${s.name} (${s.kind === 'tube' ? 'Tube' : id})` : id;
+  if (!s) return id;
+  if (s.kind === 'tube') return `${s.name} (Tube)`;
+  if (s.kind === 'bus') return `${s.name}${s.towards ? ` → ${s.towards}` : ''} (Bus)`;
+  return `${s.name} (${id})`;
+}
+
+// Titles and tags: "London Bridge (LBG)", "Oxford Circus", "Trafalgar Square · Stop S"
+function title(id) {
+  const s = byId.get(id);
+  if (!s) return BUS_ID.test(id) ? 'Bus stop' : id;
+  return s.kind === 'rail' ? `${s.name} (${id})` : s.name;
+}
+
+function kindOf(id) {
+  return byId.get(id)?.kind || (TUBE_ID.test(id) ? 'tube' : BUS_ID.test(id) ? 'bus' : 'rail');
 }
 
 function isTube(id) {
-  return byId.get(id)?.kind === 'tube' || TUBE_ID.test(id);
+  return kindOf(id) === 'tube';
 }
 
 function findStation(text) {
@@ -98,12 +116,14 @@ function findStation(text) {
   if (byLabel) return byLabel[1];
   if (/^[A-Za-z]{3}$/.test(q) && byId.get(q.toUpperCase())?.kind === 'rail') return q.toUpperCase();
 
-  // "Bank tube" / "Bank underground" → only Tube stations
-  let pool = stations;
-  const tubeWord = /\s+(\(?tube\)?|underground)$/i;
-  if (tubeWord.test(q)) {
-    q = q.replace(tubeWord, '');
+  // "Bank tube" → only Tube stations; "Trafalgar Square bus" → only bus stops
+  let pool = stations.filter(([, , k]) => k !== 'bus');
+  if (TUBE_WORDS.test(q)) {
+    q = q.replace(TUBE_WORDS, '');
     pool = stations.filter(([, , k]) => k === 'tube');
+  } else if (BUS_WORDS.test(q)) {
+    q = q.replace(BUS_WORDS, '');
+    pool = stations.filter(([, , k]) => k === 'bus');
   }
   const ql = q.toLowerCase();
   const exact = pool.filter(([n]) => n.toLowerCase() === ql);
@@ -121,22 +141,27 @@ function fillSuggestions() {
 
 function remember(list) {
   let added = false;
-  for (const [name, id, kind] of list) {
-    if (byId.has(id)) continue;
-    byId.set(id, { name, kind });
-    stations.push([name, id, kind]);
+  for (const [name, id, kind, towards = ''] of list) {
+    const old = byId.get(id);
+    if (old && old.name === name && (old.towards || '') === towards) continue;
+    byId.set(id, { name, kind, towards });
+    const i = stations.findIndex(([, sid]) => sid === id);
+    if (i >= 0) stations[i] = [name, id, kind, towards]; else stations.push([name, id, kind, towards]);
     added = true;
   }
   if (added) fillSuggestions();
   return added;
 }
 
-// Backup for Tube stations: ask TfL's station search through our server.
-async function searchTube(q) {
-  q = q.replace(/\s+(\(?tube\)?|underground)$/i, '').trim();
+const isStopCode = (q) => /^\s*\d{5}\s*$/.test(q);
+const wantsBus = (q) => BUS_WORDS.test(q.trim()) || isStopCode(q);
+
+// TfL search through our server: Tube (backup for the list) or bus stops (by name or stop code).
+async function searchTfl(q, mode) {
+  q = q.replace(TUBE_WORDS, '').replace(BUS_WORDS, '').trim();
   if (q.length < 2) return [];
   try {
-    const r = await fetch(`api/search?q=${encodeURIComponent(q)}`);
+    const r = await fetch(`api/search?mode=${mode}&q=${encodeURIComponent(q)}`);
     if (!r.ok) return [];
     const found = await r.json();
     remember(found);
@@ -144,33 +169,50 @@ async function searchTube(q) {
   } catch { return []; }
 }
 
-// While typing, top up the suggestions from TfL if the Tube list is missing.
+// While typing, top up the suggestions: bus stops when asked for ("… bus" or a stop code),
+// Tube stations if the Tube list is missing.
 function onType() {
   clearTimeout(onType.t);
   const q = $('stationInput').value;
+  if (wantsBus(q)) { onType.t = setTimeout(() => searchTfl(q, 'bus'), 400); return; }
   if (q.length < 3 || stations.some(([, , k]) => k === 'tube')) return;
-  onType.t = setTimeout(() => searchTube(q), 300);
+  onType.t = setTimeout(() => searchTfl(q, 'tube'), 300);
 }
 
 async function onAdd(e) {
   e.preventDefault();
   const input = $('stationInput');
-  let id = findStation(input.value);
+  const text = input.value;
+  let id = wantsBus(text) ? null : findStation(text);
   if (!id) {
-    const found = await searchTube(input.value);
-    const want = input.value.replace(/\s+(\(?tube\)?|underground)$/i, '').trim().toLowerCase();
+    let found = wantsBus(text) ? [] : await searchTfl(text, 'tube');
+    if (!found.length) found = await searchTfl(text, 'bus');
+    const want = text.replace(TUBE_WORDS, '').replace(BUS_WORDS, '').trim().toLowerCase();
     const exact = found.filter(([n]) => n.toLowerCase() === want);
     if (exact.length === 1 || found.length === 1) id = (exact[0] || found[0])[1];
-    else if (found.length) return flash(`Did you mean: ${found.slice(0, 4).map(([n]) => n).join(', ')}?`);
+    else if (found.length) return offerChoices(found);
   }
-  if (!id) return flash('Station not found or ambiguous. Pick one from the list.');
-  if (selected.includes(id)) return flash('That station is already shown.');
-  if (selected.length >= MAX) return flash(`Up to ${MAX} stations.`);
+  if (!id) return flash('Not found. Pick from the list, or add "bus" / a 5-digit stop code for bus stops.');
+  addBoard(id);
+}
+
+function addBoard(id) {
+  if (selected.includes(id)) return flash('That one is already shown.');
+  if (selected.length >= MAX) return flash(`Up to ${MAX} boards.`);
   selected.push(id);
-  input.value = '';
+  $('stationInput').value = '';
   flash('');
   saveSelection();
   render();
+}
+
+// Several matches (e.g. the stops around Trafalgar Square): show them as buttons.
+function offerChoices(found) {
+  clearTimeout(flash.t);
+  const msg = $('msg');
+  msg.innerHTML = 'Pick one: ' + found.slice(0, 8).map(([, id]) =>
+    `<button type="button" class="pick" data-id="${esc(id)}">${esc(label(id))}</button>`).join('');
+  msg.querySelectorAll('.pick').forEach((b) => b.addEventListener('click', () => addBoard(b.dataset.id)));
 }
 
 function removeBoard(key) {
@@ -190,7 +232,7 @@ function changeFilter(oldKey, filter) {
 }
 
 function flash(text) {
-  $('msg').textContent = text;
+  $('msg').textContent = text;   // also clears any "Pick one" buttons
   clearTimeout(flash.t);
   if (text) flash.t = setTimeout(() => ($('msg').textContent = ''), 4000);
 }
@@ -201,7 +243,9 @@ function filterOptions(key) {
   const { id, filter } = parseKey(key);
   const d = stationData.get(id)?.data;
   const opts = new Set(['']);
-  if (d?.kind === 'tube') {
+  if (d?.kind === 'bus') {
+    (d.routes || []).forEach((r) => opts.add(`r${String(r).toLowerCase()}`));
+  } else if (d?.kind === 'tube') {
     const plats = d.platforms || [];
     for (const dir of DIRECTIONS) if (plats.some((p) => p.direction.toLowerCase() === dir)) opts.add(dir);
     plats.map((p) => p.number).filter(Boolean).sort(numeric).forEach((n) => opts.add(`p${n.toLowerCase()}`));
@@ -221,10 +265,11 @@ function renderChips(force = false) {
   const html = selected.map((key) => {
     const { id, filter } = parseKey(key);
     const options = filterOptions(key)
-      .map((f) => `<option value="${f}"${f === filter ? ' selected' : ''}>${esc(filterLabel(f))}</option>`).join('');
-    return `<span class="chip">${esc(label(id))}`
-      + `<select data-key="${key}" aria-label="Platform for ${esc(label(id))}">${options}</select>`
-      + `<button type="button" data-key="${key}" aria-label="Remove ${esc(label(id))}">✕</button></span>`;
+      .map((f) => `<option value="${f}"${f === filter ? ' selected' : ''}>${esc(filterLabel(f, id))}</option>`).join('');
+    const kind = kindOf(id);
+    return `<span class="chip"><span class="badge ${kind}">${kind.toUpperCase()}</span>${esc(title(id))}`
+      + `<select data-key="${key}" aria-label="Filter for ${esc(title(id))}">${options}</select>`
+      + `<button type="button" data-key="${key}" aria-label="Remove ${esc(title(id))}">✕</button></span>`;
   }).join('');
   if (html === chipsHtml && !force) return;   // don't close an open menu for nothing
   chipsHtml = html;
@@ -239,8 +284,8 @@ function render() {
   const full = selected.length >= MAX;
   $('stationInput').disabled = full;
   $('addForm').querySelector('button').disabled = full;
-  $('stationInput').placeholder = full ? 'Maximum 4 stations' : 'Add rail or Tube station…';
-  $('tflCredit').hidden = !selected.some((k) => isTube(parseKey(k).id));
+  $('stationInput').placeholder = full ? 'Maximum 4 boards' : 'Station, Tube, or bus stop (name + "bus", or stop code)…';
+  $('tflCredit').hidden = !selected.some((k) => kindOf(parseKey(k).id) !== 'rail');
 
   const n = selected.length;
   const grid = $('grid');
@@ -255,12 +300,14 @@ function render() {
     const { id, filter } = parseKey(key);
     const cell = document.createElement('div');
     cell.className = 'cell';
-    cell.innerHTML = `<div class="case"><div class="name"></div><div class="board">
+    cell.innerHTML = `<div class="case">
+      <div class="title"><span class="badge"></span><span class="nm"></span><span class="ft"></span></div>
+      <div class="inner"><div class="board">
       <div class="row r1"><span class="l"></span><span class="r"></span></div>
       <div class="row r2 hide"><span class="l"></span><span class="r"></span></div>
       <div class="call"><span></span></div>
       <div class="row r3"><span class="l"></span><span class="r"></span></div>
-      <div class="clock"></div></div></div>`;
+      <div class="clock"></div></div></div></div>`;
     grid.appendChild(cell);
     const b = { key, id, filter, el: cell, next: 1, plat: 0, x: null, lastText: '', mode: 'trains' };
     boards.set(key, b);
@@ -288,7 +335,9 @@ async function load(id) {
     console.warn(id, err);
   }
   stationData.set(id, entry);
-  if (entry.data?.kind === 'tube' && entry.data.station && remember([[entry.data.station, id, 'tube']])) render();
+  const d = entry.data;
+  if (d?.kind === 'tube' && d.station && remember([[d.station, id, 'tube']])) render();
+  if (d?.kind === 'bus' && d.station && remember([[d.station, id, 'bus', d.towards || '']])) render();
   for (const b of boards.values()) if (b.id === id) paint(b);
   renderChips();
 }
@@ -308,8 +357,14 @@ function rows(b) {
 
 function paint(b) {
   const s = stationData.get(b.id);
-  b.el.querySelector('.name').textContent = `${label(b.id)}${b.filter ? ` · ${filterLabel(b.filter)}` : ''}`;
+  const kind = kindOf(b.id);
+  const badge = b.el.querySelector('.title .badge');
+  badge.className = `badge ${kind}`;
+  badge.textContent = kind.toUpperCase();
+  b.el.querySelector('.title .nm').textContent = title(b.id);
+  b.el.querySelector('.title .ft').textContent = filterLabel(b.filter, b.id);
   if (!s?.data) return showText(b, s?.error || 'Loading…', s?.detail || '');
+  if (s.data.kind === 'bus') return paintBus(b, s.data);
   return s.data.kind === 'tube' ? paintTube(b, s.data) : paintRail(b, s.data);
 }
 
@@ -421,6 +476,42 @@ function paintTube(b, d) {
   set('r3', `${b.next + 1} ${a.destination}`, mins(a.expected));
 }
 
+// Bus, like a London bus stop countdown sign:
+//   Stop S → Westminster
+//   453  Deptford Bridge     2 min
+//   12   Dulwich Library     4 min   (cycles through the following buses)
+//   11:25:09
+function busArrivals(b, d) {
+  const want = b.filter.startsWith('r') ? b.filter.slice(1) : '';
+  const now = Date.now();
+  return (d.arrivals || []).filter((a) => (!want || a.route.toLowerCase() === want)
+    && new Date(a.expected).getTime() > now - 30000);
+}
+
+function paintBus(b, d) {
+  const { set, show } = rows(b);
+  show('.call', false);
+  show('.r2', true);
+  show('.r3', true);
+  const head = [d.stop, d.towards ? `→ ${d.towards}` : ''].filter(Boolean).join(' ');
+  set('r1', head || d.station);
+  const list = busArrivals(b, d);
+  if (!list.length) {
+    set('r2', b.filter ? `No ${filterLabel(b.filter, b.id).toLowerCase()} buses due` : 'No buses due');
+    return set('r3');
+  }
+  const line = (a) => `${a.route.padEnd(4, ' ')} ${a.destination}`;
+  set('r2', line(list[0]), busMins(list[0].expected));
+  if (list.length < 2) return set('r3');
+  if (b.next >= list.length || b.next < 1) b.next = 1;
+  set('r3', line(list[b.next]), busMins(list[b.next].expected));
+}
+
+function busMins(iso) {
+  const m = Math.floor((new Date(iso).getTime() - Date.now()) / 60000);
+  return m < 1 ? 'Due' : `${m} min`;
+}
+
 function mins(iso) {
   const m = Math.floor((new Date(iso).getTime() - Date.now()) / 60000);
   return m < 1 ? 'Due' : m === 1 ? '1 min' : `${m} mins`;
@@ -439,8 +530,8 @@ const clockFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', h
 function tickClock() {
   const t = clockFmt.format(new Date());
   document.querySelectorAll('.clock').forEach((c) => (c.textContent = t));
-  // Tube countdowns ("3 mins") tick down between refreshes.
-  for (const b of boards.values()) if (stationData.get(b.id)?.data?.kind === 'tube') paint(b);
+  // Tube and bus countdowns ("3 mins") tick down between refreshes.
+  for (const b of boards.values()) if (['tube', 'bus'].includes(stationData.get(b.id)?.data?.kind)) paint(b);
 }
 
 function cycleNext() {

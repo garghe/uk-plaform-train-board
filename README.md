@@ -1,6 +1,8 @@
 # UK Platform Departure Board
 
-A web page that looks like the orange dot-matrix departure boards on UK railway platforms. Type a station, and its next trains appear. You can show **up to 4 stations** at once, mixing **National Rail** and **London Underground** stations.
+A web page that looks like the orange dot-matrix departure boards on UK railway platforms. Type a station, and its next trains appear. You can show **up to 4 boards** at once, mixing **National Rail** stations, **London Underground** stations and **London bus stops**.
+
+Each board has a title bar with a **RAIL**, **TUBE** or **BUS** tag, the station or stop name, and the platform, direction or route it's showing.
 
 ![Four stations](docs/screenshot-4-stations.png)
 
@@ -26,11 +28,24 @@ London Underground stations get a Tube-style board, like the ones on the platfor
 
 With **All platforms**, a Tube board rotates through the station's platforms every 12 seconds. Minutes count down between refreshes.
 
+### Bus boards
+
+London bus stops get a board like the countdown signs at the stop:
+
+1. **Stop and direction**, e.g. `Stop S → Westminster`.
+2. **Next bus:** route, destination and minutes, e.g. `453  Deptford Bridge   2 min` (`Due` when it's about to arrive).
+3. **Following buses**, taking turns.
+4. **Clock.**
+
+To add a bus stop, type its name followed by **bus** (e.g. `Trafalgar Square bus`) and pick the stop from the buttons that appear, or type the **5-digit stop code** shown on the sign at the stop (e.g. `47847`). Each bus stop serves one direction, so the menu filters by **route** instead of platform.
+
+![Bus boards](docs/screenshot-buses.png)
+
 ### Choosing a platform or direction
 
-Each station tag has a menu: **All platforms**, a single **platform** (rail and Tube), or a **direction** (Tube: Northbound, Southbound, Eastbound, Westbound). The board then shows only those trains, like a real platform display. The menu lists the platforms that currently have trains. National Rail data has no direction, so rail boards filter by platform only.
+Each station tag has a menu: **All platforms**, a single **platform** (rail and Tube), a **direction** (Tube: Northbound, Southbound, Eastbound, Westbound), or a **route** (bus). The board then shows only those trains, like a real platform display. The menu lists the platforms that currently have trains. National Rail data has no direction, so rail boards filter by platform only.
 
-The choice is kept in the web address, e.g. `?stations=WAT:p2,940GZZLUBNK:northbound`. You can show the same station twice with different choices, e.g. Bank Northbound and Bank Southbound.
+The choice is kept in the web address, e.g. `?stations=WAT:p2,940GZZLUBNK:northbound,490000173OC:r88`. You can show the same station twice with different choices, e.g. Bank Northbound and Bank Southbound.
 
 ![Platform and direction](docs/screenshot-platforms.png)
 
@@ -86,9 +101,9 @@ The key stays on the server. It is never sent to the browser, and `.env` is excl
 
 If your subscription gives a different endpoint address, set `RDM_DEPARTURES_URL` in `.env` (without the station code at the end). The default uses `GetDepBoardWithDetails`, which includes calling points.
 
-## Tube data (TfL)
+## Tube and bus data (TfL)
 
-Tube times come from the free [TfL Unified API](https://api.tfl.gov.uk). It works **without a key**, at a lower request limit. Tube data is always live; there is no sample mode, so it needs internet access to TfL.
+Tube and bus times come from the free [TfL Unified API](https://api.tfl.gov.uk). It works **without a key**, at a lower request limit. Tube and bus data is always live; there is no sample mode, so it needs internet access to TfL. Bus stops aren't preloaded (London has about 19,000); they're found through TfL's search when you add one.
 
 For a higher limit, register at the [TfL API portal](https://api-portal.tfl.gov.uk/) and set `TFL_APP_KEY` (in `.env` locally, or as a Cloudflare Secret). The Tube station list is downloaded from TfL when the server starts and kept for a day.
 
@@ -154,7 +169,7 @@ This runs on http://localhost:8787. For a local key, put `RDM_API_KEY=...` in a 
 
 ```
 src/api.js          API logic shared by both versions: live data, sample data, 20 s cache
-src/tfl.js          London Underground via the TfL API
+src/tfl.js          London Underground and buses via the TfL API
 src/worker.js       Cloudflare Worker entry point
 wrangler.toml       Cloudflare config
 server.js           Local Node server (no dependencies)
@@ -169,8 +184,9 @@ API endpoints (same on both versions):
 | Path | Returns |
 |---|---|
 | `/api/stations` | All stations as `[name, id, "rail" or "tube"]` |
-| `/api/departures?id=LBG` | Next departures (rail: CRS code, Tube: TfL id such as `940GZZLUOXC`) |
+| `/api/departures?id=LBG` | Next departures (rail: CRS code; Tube: TfL id such as `940GZZLUOXC`; bus: stop id such as `490013767S`) |
 | `/api/search?q=oxford` | Tube station search via TfL (backup when the list is missing) |
+| `/api/search?mode=bus&q=trafalgar` | Bus stop search via TfL, by name or 5-digit stop code |
 | `/api/status` | Rail mode (`live` or `sample`) and Tube list health; add `?check` to load the list first |
 
 ## Credits

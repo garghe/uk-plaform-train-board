@@ -9,6 +9,9 @@
   --led: #ffa21a;
   --led-glow: #ff8c0099;
   --led-off: #1a1006;
+  --badge-rail: #e9e9e9;
+  --badge-tube: #9cc3ff;
+  --badge-bus: #ff8f8f;
 }
 
 * { box-sizing: border-box; }
@@ -53,6 +56,11 @@ body {
 .add input:disabled, .add button:disabled { opacity: .4; cursor: not-allowed; }
 .msg { font-size: 13px; color: #ff8a65; }
 .msg:empty { display: none; }
+.msg .pick {
+  margin: 2px 0 2px 6px; padding: 4px 9px; border-radius: 6px; border: 1px solid #444;
+  background: var(--chip); color: var(--text); font: 13px Inter, system-ui, sans-serif; cursor: pointer;
+}
+.msg .pick:hover { border-color: var(--accent); }
 .meta { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; display: flex; align-items: center; gap: 6px; }
 .meta .live { color: #7bd88f; }
 .meta .sample { color: var(--accent); }
@@ -68,14 +76,27 @@ body {
 
 /* The board */
 .case {
-  flex: 1; max-height: 100%; display: flex; overflow: hidden; position: relative;
-  background: #050505; border: 6px solid #1c1c1c; border-radius: 4px;
-  padding: 1.6cqw 2.4cqw; box-shadow: 0 10px 40px #000a;
+  flex: 1; max-height: 100%; display: flex; flex-direction: column; overflow: hidden;
+  background: #050505; border: 6px solid #1c1c1c; border-radius: 4px; box-shadow: 0 10px 40px #000a;
 }
-.name { position: absolute; top: 4px; right: 10px; font-size: 11px; color: #444; }
+/* Title bar above each board: tag, name, platform/route choice */
+.title {
+  display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+  background: #1c1c1c; font-family: Inter, system-ui, sans-serif; min-width: 0;
+}
+.title .nm { font-size: 16px; font-weight: 600; color: #f2f2f2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.title .ft { margin-left: auto; font-size: 13px; color: #aaa; white-space: nowrap; }
+.badge {
+  flex: none; font: 600 11px/1 Inter, system-ui, sans-serif; letter-spacing: .06em;
+  padding: 4px 7px; border-radius: 4px; color: #111; background: var(--badge-rail);
+}
+.badge.tube { background: var(--badge-tube); }
+.badge.bus { background: var(--badge-bus); }
+.chip .badge { font-size: 10px; padding: 3px 5px; margin-right: 6px; }
+.inner { display: flex; padding: 1.4cqw 2.4cqw; min-height: 0; }
 .board {
   flex: 1; min-width: 0; overflow: hidden;
-  font-family: Doto, monospace; font-weight: 900; font-size: min(3.9cqw, 17cqh); line-height: 1.15;
+  font-family: Doto, monospace; font-weight: 900; font-size: min(3.9cqw, calc((100cqh - 40px) * .17)); line-height: 1.15;
   color: var(--led); text-shadow: 0 0 .12em var(--led-glow);
   background: radial-gradient(var(--led-off) 30%, transparent 31%) 0 0 / .15em .15em;
 }
@@ -104,7 +125,9 @@ body.is-fs .top { display: none; }
   .meta { margin-left: 0; }
 }
 
-/* Small boards: the corner label would cover the LED text */
-@container (max-width: 600px) {
-  .name { display: none; }
+/* Small boards: smaller title bar */
+@container (max-width: 500px) {
+  .title { padding: 5px 8px; gap: 6px; }
+  .title .nm { font-size: 13px; }
+  .title .ft { font-size: 11px; }
 }
