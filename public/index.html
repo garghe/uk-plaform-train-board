@@ -13,8 +13,12 @@
   <header class="top">
     <div id="chips" class="chips"></div>
     <form id="addForm" class="add" autocomplete="off">
-      <input id="stationInput" list="stationList" placeholder="Add station (name or code)…" aria-label="Station name or code">
-      <datalist id="stationList"></datalist>
+      <div class="searchbox">
+        <input id="stationInput" placeholder="Station, Tube or bus stop…" aria-label="Station, Tube station or bus stop"
+          role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="dd">
+        <div id="dd" class="dd" role="listbox" hidden></div>
+      </div>
+      <button id="nearBtn" class="near" type="button" title="Find stops and stations near you">📍 Near me</button>
       <button type="submit">+ Add</button>
     </form>
     <span id="msg" class="msg" role="status"></span>

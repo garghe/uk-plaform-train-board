@@ -54,13 +54,32 @@ body {
   background: var(--accent); color: #111; font-weight: 600; cursor: pointer;
 }
 .add input:disabled, .add button:disabled { opacity: .4; cursor: not-allowed; }
+.add .near {
+  background: var(--chip); color: var(--text); border: 1px solid #444; font-weight: 400;
+}
+.add .near:hover:not(:disabled) { border-color: var(--accent); color: #fff; }
+
+/* Search drop-down */
+.searchbox { position: relative; }
+.dd {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+  width: min(580px, calc(100vw - 32px)); max-height: min(70vh, 520px); overflow-y: auto;
+  background: #202328; border: 1px solid #3a3d42; border-radius: 10px; box-shadow: 0 14px 40px #000c; padding: 6px;
+}
+.dd .sec { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: #888; padding: 8px 10px 4px; }
+.dd .it { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 7px; font-size: 14px; cursor: pointer; }
+.dd .it:hover, .dd .it.hl { background: #2c3036; }
+.dd .tx { min-width: 0; }
+.dd .n { color: #f2f2f2; }
+.dd .d { color: #aaa; font-size: 13px; }
+.dd .rt { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; flex: none; max-width: 40%; }
+.dd .rt span { font-size: 11px; font-weight: 600; background: #3a2a10; color: #ffb347; border-radius: 4px; padding: 2px 5px; }
+.dd .dist { color: #ffb347; font-size: 12px; width: 52px; text-align: right; flex: none; }
+.dd .note, .dd .hint { font-size: 12px; color: #888; padding: 6px 10px 8px; }
+.dd .note { color: #bbb; }
 .msg { font-size: 13px; color: #ff8a65; }
 .msg:empty { display: none; }
-.msg .pick {
-  margin: 2px 0 2px 6px; padding: 4px 9px; border-radius: 6px; border: 1px solid #444;
-  background: var(--chip); color: var(--text); font: 13px Inter, system-ui, sans-serif; cursor: pointer;
-}
-.msg .pick:hover { border-color: var(--accent); }
+
 .meta { margin-left: auto; font-size: 12px; color: var(--muted); white-space: nowrap; display: flex; align-items: center; gap: 6px; }
 .meta .live { color: #7bd88f; }
 .meta .sample { color: var(--accent); }
@@ -125,6 +144,9 @@ body {
 body.is-fs .top, body.is-fs .foot { display: none; }
 
 @media (max-width: 700px) {
+  .add { flex-wrap: wrap; width: 100%; }
+  .add .searchbox { flex: 1 1 100%; }
+  .add input { width: 100%; max-width: none; }
   .chips { width: 100%; }
   .chip { max-width: 100%; white-space: normal; flex-wrap: wrap; }
   .meta { white-space: normal; flex-wrap: wrap; }

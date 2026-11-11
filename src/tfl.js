@@ -18,6 +18,11 @@ const STATIONS_RETRY = 5 * 60 * 1000;
 const STATUS_TTL = 60 * 1000;
 
 const STOP_TTL = 24 * 3600 * 1000;
+export const LINE_NAMES = {
+  bakerloo: 'Bakerloo', central: 'Central', circle: 'Circle', district: 'District',
+  'hammersmith-city': 'Hammersmith & City', jubilee: 'Jubilee', metropolitan: 'Metropolitan',
+  northern: 'Northern', piccadilly: 'Piccadilly', victoria: 'Victoria', 'waterloo-city': 'Waterloo & City',
+};
 
 export const isTubeId = (id) => /^940GZZ[A-Z0-9]{2,6}$/.test(id);
 // Individual bus stops: 490 + code (not "490G…", which are groups of stops)
@@ -128,7 +133,7 @@ export function createTfl({ baseUrl = DEFAULT_TFL_URL, appKey = '' } = {}) {
       nodes = (Array.isArray(res) ? res : [res]).filter(Boolean);
     } else {
       const res = await get(`/StopPoint/Search/${encodeURIComponent(q)}?modes=bus&maxResults=5`);
-      const areas = (res?.matches || []).slice(0, 3);
+      const areas = (res?.matches || []).slice(0, 5);
       const details = await Promise.allSettled(areas.map((m) => get(`/StopPoint/${m.id}`)));
       nodes = details.filter((d) => d.status === 'fulfilled').map((d) => d.value);
     }
@@ -139,12 +144,32 @@ export function createTfl({ baseUrl = DEFAULT_TFL_URL, appKey = '' } = {}) {
       if (isBusId(id) && (!n.modes || n.modes.includes('bus'))) {
         const info = busStop(n);
         stopCache.set(id, { at: Date.now(), info });
-        stops.set(id, [stopTitle(info), id, 'bus', info.towards]);
+        stops.set(id, [stopTitle(info), id, 'bus', info.towards, info.routes]);
       }
       for (const c of n.children || []) walk(c, depth + 1);
     };
     nodes.forEach((n) => walk(n));
-    return [...stops.values()].slice(0, 12);
+    return [...stops.values()].slice(0, 15);
+  }
+
+  // Bus stops and Tube stations near a point, nearest first: [name, id, kind, towards, routes, metres]
+  async function near(lat, lon, radius = 400) {
+    const res = await get(`/StopPoint?lat=${lat}&lon=${lon}&radius=${radius}`
+      + '&stopTypes=NaptanPublicBusCoachTram,NaptanMetroStation&modes=bus,tube&returnLines=true');
+    const out = [];
+    for (const sp of res?.stopPoints || []) {
+      const id = sp.naptanId || sp.id || '';
+      const metres = Math.round(sp.distance || 0);
+      if (isBusId(id)) {
+        const info = busStop(sp);
+        stopCache.set(id, { at: Date.now(), info });
+        out.push([stopTitle(info), id, 'bus', info.towards, info.routes, metres]);
+      } else if (isTubeId(id)) {
+        const lines = (sp.lines || []).map((l) => LINE_NAMES[l.id]).filter(Boolean);
+        out.push([cleanName(sp.commonName || id), id, 'tube', '', lines, metres]);
+      }
+    }
+    return out;
   }
 
   async function busBoard(id) {
@@ -255,7 +280,7 @@ export function createTfl({ baseUrl = DEFAULT_TFL_URL, appKey = '' } = {}) {
     };
   }
 
-  return { listStations, board, busBoard, search, info };
+  return { listStations, board, busBoard, search, near, info };
 }
 
 function findNode(n, id, depth = 0) {
@@ -275,7 +300,9 @@ function busStop(n) {
   const indicator = (n.indicator || '').trim();
   const stop = /^stop\b/i.test(indicator) ? indicator
     : letter && /^[A-Z0-9]{1,3}$/i.test(letter) ? `Stop ${letter.toUpperCase()}` : '';
-  return { name: cleanName(n.commonName || n.name || ''), stop, towards };
+  const routes = [...new Set((n.lines || []).map((l) => l.name || l.id).filter(Boolean))]
+    .sort((a, b) => String(a).localeCompare(String(b), 'en', { numeric: true }));
+  return { name: cleanName(n.commonName || n.name || ''), stop, towards, routes };
 }
 
 function stopTitle({ name, stop }) {

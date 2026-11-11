@@ -3,7 +3,7 @@
 // Uses only web-standard APIs (fetch, Response, Intl), so it runs in both.
 // Rail stations use 3-letter CRS codes; Tube stations use TfL ids (940GZZLU...).
 
-import { createTfl, isTubeId, isBusId } from './tfl.js';
+import { createTfl, isTubeId, isBusId, LINE_NAMES } from './tfl.js';
 
 export const DEFAULT_API_URL =
   'https://api1.raildata.org.uk/1010-live-departure-board-dep1_2/LDBWS/api/20220120/GetDepBoardWithDetails';
@@ -30,10 +30,27 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
 
   async function stationList() {
     const tube = await tfl.listStations();
-    const tubeList = [...tube].map(([id, s]) => [s.name, id, 'tube']);
+    const tubeList = [...tube].map(([id, s]) => [s.name, id, 'tube', '', [...s.lines].map((l) => LINE_NAMES[l] || l)]);
     const all = [...railList, ...tubeList].sort((a, b) => a[0].localeCompare(b[0]));
     // Only let browsers cache the list once the Tube part loaded.
     return json(200, all, tubeList.length ? 'public, max-age=3600' : 'no-store');
+  }
+
+  // Stops and stations near the viewer: TfL for bus and Tube, our own list for rail.
+  async function nearby(url) {
+    const lat = Number(url.searchParams.get('lat'));
+    const lon = Number(url.searchParams.get('lon'));
+    if (!(lat > 49 && lat < 61 && lon > -9 && lon < 3)) return json(400, { error: 'Location outside the UK' });
+    const radius = 400;
+    const rail = stations
+      .map(([name, crs, la, lo]) => [name, crs, 'rail', '', [], Math.round(metres(lat, lon, la, lo))])
+      .filter((r) => r[5] <= radius * 2);   // rail stations are fewer: look a bit further
+    let tflList = [];
+    let error = '';
+    try { tflList = await tfl.near(lat.toFixed(5), lon.toFixed(5), radius); }
+    catch (err) { error = err.message; console.error('TfL near failed:', err.message); }
+    const all = [...rail, ...tflList].sort((a, b) => a[5] - b[5]).slice(0, 12);
+    return json(200, { radius, results: all, error });
   }
 
   async function tflDepartures(id, load) {
@@ -85,6 +102,7 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
         try { return json(200, await tfl.search(url.searchParams.get('q'), mode)); }
         catch (err) { console.error('TfL search failed:', err.message); return json(502, { error: 'Search unavailable' }); }
       }
+      if (url.pathname === '/api/near') return await nearby(url);
       if (url.pathname === '/api/status') {
         if (url.searchParams.has('check')) await tfl.listStations();
         return json(200, { mode: apiKey ? 'live' : 'sample', tube: tfl.info(), build });
@@ -96,6 +114,13 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
       return json(500, { error: 'Server error' });
     }
   };
+}
+
+function metres(lat1, lon1, lat2, lon2) {
+  const rad = Math.PI / 180;
+  const x = (lon2 - lon1) * rad * Math.cos(((lat1 + lat2) / 2) * rad);
+  const y = (lat2 - lat1) * rad;
+  return Math.hypot(x, y) * 6371000;
 }
 
 function json(status, body, cacheControl = 'no-store') {

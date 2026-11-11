@@ -37,7 +37,7 @@ London bus stops get a board like the countdown signs at the stop:
 3. **Following buses**, taking turns.
 4. **Clock.**
 
-To add a bus stop, type its name followed by **bus** (e.g. `Trafalgar Square bus`) and pick the stop from the buttons that appear, or type the **5-digit stop code** shown on the sign at the stop (e.g. `47847`). Each bus stop serves one direction, so the menu filters by **route** instead of platform.
+To add a bus stop, type the place name and pick the stop from the **Bus stops** part of the list, type the **5-digit stop code** shown on the sign at the stop (e.g. `47847`), or use **📍 Near me**. Each bus stop serves one direction, so the menu filters by **route** instead of platform.
 
 ![Bus boards](docs/screenshot-buses.png)
 
@@ -65,7 +65,10 @@ The choice is kept in the web address, e.g. `?stations=WAT:p2,940GZZLUBNK:northb
 
 ## Using it
 
-- **Add a station:** type its name or 3-letter code (e.g. `Bath Spa` or `BTH`) and press **+ Add**. Suggestions appear as you type. Tube stations are listed as e.g. `Oxford Circus (Tube)`; typing `Bank tube` also works.
+- **Add a station or stop:** start typing a name (e.g. `Bath Spa`, `Oxford Circus`, `Fulham Broadway`) or a code (`BTH`, or a bus stop's 5-digit code). A list opens with **Stations** (rail and Tube, with their lines) and **Bus stops** (with stop letter, direction and routes). Click one, or use ↑↓ and Enter.
+- **Near me:** the 📍 button lists bus stops, Tube and rail stations around you, nearest first, with distances. Your browser asks permission the first time; the location is used once for that lookup and not stored.
+
+![Search](docs/screenshot-search.png)
 - **Remove a station:** click **✕** on its tag.
 - **Bookmark a set:** the web address keeps your stations, e.g. `http://localhost:3000/?stations=LBG,WAT,MAN,EDB`. Your last set is also remembered in the browser.
 - **Full screen:** the **⛶** button hides the toolbar (handy on a spare monitor or TV). Press `Esc` to leave.
@@ -191,6 +194,7 @@ API endpoints (same on both versions):
 | `/api/departures?id=LBG` | Next departures (rail: CRS code; Tube: TfL id such as `940GZZLUOXC`; bus: stop id such as `490013767S`) |
 | `/api/search?q=oxford` | Tube station search via TfL (backup when the list is missing) |
 | `/api/search?mode=bus&q=trafalgar` | Bus stop search via TfL, by name or 5-digit stop code |
+| `/api/near?lat=51.508&lon=-0.128` | Bus stops, Tube and rail stations within about 400 m, nearest first |
 | `/api/status` | Rail mode (`live` or `sample`) and Tube list health; add `?check` to load the list first |
 
 ## Credits

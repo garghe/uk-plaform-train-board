@@ -13,8 +13,8 @@ const TUBE_WORDS = /\s+(\(?tube\)?|underground)$/i;
 const DIRECTIONS = ['northbound', 'southbound', 'eastbound', 'westbound'];
 
 const $ = (id) => document.getElementById(id);
-let stations = [];                    // [[name, id, 'rail'|'tube'|'bus', towards?], ...]
-let byId = new Map();                 // id -> { name, kind, towards }
+let stations = [];                    // [[name, id, 'rail'|'tube'|'bus', towards?, routes/lines?], ...]
+let byId = new Map();                 // id -> { name, kind, towards, routes }
 let selected = [];                    // board keys: 'LBG', 'WAT:p2', '940GZZLUBNK:northbound'
 const stationData = new Map();        // id -> { data, error, detail }
 const boards = new Map();             // key -> board state
@@ -25,9 +25,8 @@ async function init() {
   try {
     stations = await (await fetch('api/stations?v=3')).json();   // ?v= skips old cached copies
   } catch { stations = []; }
-  byId = new Map(stations.map(([name, id, kind, towards]) => [id, { name, kind, towards }]));
-  fillSuggestions();
-  $('stationInput').addEventListener('input', onType);
+  byId = new Map(stations.map(([name, id, kind, towards = '', routes = []]) => [id, { name, kind, towards, routes }]));
+  setupSearch();
 
   fetch('api/status').then((r) => r.json()).then(({ mode, build }) => {
     $('mode').innerHTML = mode === 'live' ? '<span class="live">● Live data</span>' : '<span class="sample">● Sample rail data</span>';
@@ -136,30 +135,30 @@ function findStation(text) {
   return contains.length === 1 ? contains[0][1] : null;
 }
 
-function fillSuggestions() {
-  $('stationList').innerHTML = stations.map(([, id]) => `<option value="${esc(label(id))}">`).join('');
-}
-
 function remember(list) {
   let added = false;
-  for (const [name, id, kind, towards = ''] of list) {
+  for (const [name, id, kind, newTowards = '', newRoutes = []] of list) {
     const old = byId.get(id);
-    if (old && old.name === name && (old.towards || '') === towards) continue;
-    byId.set(id, { name, kind, towards });
+    // Keep details we already know if this source doesn't have them.
+    const towards = newTowards || old?.towards || '';
+    const routes = newRoutes?.length ? newRoutes : old?.routes || [];
+    if (old && old.name === name && (old.towards || '') === towards && (old.routes || []).join() === routes.join()) continue;
+    byId.set(id, { name, kind, towards, routes });
     const i = stations.findIndex(([, sid]) => sid === id);
-    if (i >= 0) stations[i] = [name, id, kind, towards]; else stations.push([name, id, kind, towards]);
+    const row = [name, id, kind, towards, routes];
+    if (i >= 0) stations[i] = row; else stations.push(row);
     added = true;
   }
-  if (added) fillSuggestions();
   return added;
 }
 
 const isStopCode = (q) => /^\s*\d{5}\s*$/.test(q);
 const wantsBus = (q) => BUS_WORDS.test(q.trim()) || isStopCode(q);
+const cleanQuery = (q) => q.replace(TUBE_WORDS, '').replace(BUS_WORDS, '').trim();
 
 // TfL search through our server: Tube (backup for the list) or bus stops (by name or stop code).
 async function searchTfl(q, mode) {
-  q = q.replace(TUBE_WORDS, '').replace(BUS_WORDS, '').trim();
+  q = cleanQuery(q);
   if (q.length < 2) return [];
   try {
     const r = await fetch(`api/search?mode=${mode}&q=${encodeURIComponent(q)}`);
@@ -170,34 +169,169 @@ async function searchTfl(q, mode) {
   } catch { return []; }
 }
 
-// While typing, top up the suggestions: bus stops when asked for ("… bus" or a stop code),
-// Tube stations if the Tube list is missing.
+/* ---------- Search drop-down ---------- */
+// Sections of rows; each row is [name, id, kind, towards, routes, metres?]
+
+const dd = { sections: [], hint: '', hl: -1 };
+
+function setupSearch() {
+  const input = $('stationInput');
+  input.addEventListener('input', onType);
+  input.addEventListener('focus', () => { if (input.value.trim()) onType(); });
+  input.addEventListener('keydown', onSearchKey);
+  input.addEventListener('blur', () => setTimeout(closeDropdown, 150));
+  $('nearBtn').addEventListener('mousedown', (e) => e.preventDefault());   // keep focus in the box
+  $('nearBtn').addEventListener('click', nearMe);
+}
+
+// Rail and Tube from the local list, best matches first.
+function localMatches(q) {
+  if (BUS_WORDS.test(q) || isStopCode(q)) return [];
+  const tubeOnly = TUBE_WORDS.test(q);
+  const ql = cleanQuery(q).toLowerCase();
+  if (!ql) return [];
+  const score = ([name, id, kind]) => {
+    if (kind === 'bus' || (tubeOnly && kind !== 'tube')) return 0;
+    const n = name.toLowerCase();
+    if (n === ql || id.toLowerCase() === ql) return 5;
+    if (n.startsWith(ql)) return 4;
+    if (n.split(/[\s(/-]+/).some((w) => w.startsWith(ql))) return 3;
+    return n.includes(ql) ? 2 : 0;
+  };
+  return stations.map((r) => [score(r), r]).filter(([sc]) => sc)
+    .sort((a, b) => b[0] - a[0] || a[1][0].localeCompare(b[1][0])).slice(0, 6).map(([, r]) => r);
+}
+
 function onType() {
   clearTimeout(onType.t);
   const q = $('stationInput').value;
-  if (wantsBus(q)) { onType.t = setTimeout(() => searchTfl(q, 'bus'), 400); return; }
-  if (q.length < 3 || stations.some(([, , k]) => k === 'tube')) return;
-  onType.t = setTimeout(() => searchTfl(q, 'tube'), 300);
+  if (!q.trim()) return closeDropdown();
+  const stationsFound = localMatches(q);
+  const busWanted = cleanQuery(q).length >= 3 || isStopCode(q);
+  const sections = [];
+  if (stationsFound.length) sections.push({ title: 'Stations', items: stationsFound });
+  if (busWanted) sections.push({ title: 'Bus stops', items: [], note: 'Searching…' });
+  openDropdown(sections, '↑↓ to move · Enter to add · or type a 5-digit stop code');
+  if (!busWanted) return;
+  onType.t = setTimeout(async () => {
+    const tubeMissing = !stations.some(([, , k]) => k === 'tube') && !BUS_WORDS.test(q) && !isStopCode(q);
+    const [buses, tubes] = await Promise.all([searchTfl(q, 'bus'), tubeMissing ? searchTfl(q, 'tube') : []]);
+    if ($('stationInput').value !== q) return;   // the user kept typing
+    const st = [...stationsFound, ...tubes.filter(([, id]) => !stationsFound.some(([, s]) => s === id))].slice(0, 6);
+    const secs = [];
+    if (st.length) secs.push({ title: 'Stations', items: st });
+    secs.push({ title: 'Bus stops', items: buses, note: buses.length ? '' : 'No London bus stops found' });
+    openDropdown(secs, dd.hint);
+  }, 350);
+}
+
+function openDropdown(sections, hint) {
+  dd.sections = sections;
+  dd.hint = hint;
+  const items = ddItems();
+  dd.hl = items.length ? Math.min(Math.max(dd.hl, 0), items.length - 1) : -1;
+  const routesHtml = (routes) => (routes || []).slice(0, 6).map((r) => `<span>${esc(r)}</span>`).join('');
+  let i = 0;
+  const html = sections.map((sec) => `<div class="sec">${esc(sec.title)}</div>`
+    + sec.items.map(([name, id, kind, towards = '', routes = [], metres]) => {
+      const detail = kind === 'bus' ? (towards ? `→ ${towards}` : '') : kind === 'tube' ? (routes || []).join(', ') : id;
+      const tags = kind === 'bus' ? `<span class="rt">${routesHtml(routes)}</span>` : '';
+      const dist = metres != null ? `<span class="dist">${metres < 1000 ? `${metres} m` : `${(metres / 1000).toFixed(1)} km`}</span>` : '';
+      const n = i++;
+      return `<div class="it${n === dd.hl ? ' hl' : ''}" role="option" data-id="${esc(id)}" data-n="${n}">${dist}`
+        + `<span class="badge ${kind}">${kind.toUpperCase()}</span>`
+        + `<span class="tx"><span class="n">${esc(name)}</span> <span class="d">${esc(detail)}</span></span>${tags}</div>`;
+    }).join('')
+    + (sec.note ? `<div class="note">${esc(sec.note)}</div>` : '')).join('')
+    + (hint ? `<div class="hint">${esc(hint)}</div>` : '');
+  const box = $('dd');
+  box.innerHTML = html;
+  box.hidden = !sections.length;
+  $('stationInput').setAttribute('aria-expanded', String(!box.hidden));
+  box.querySelectorAll('.it').forEach((el) => {
+    el.addEventListener('mousedown', (e) => e.preventDefault());   // keep focus in the box
+    el.addEventListener('click', () => addBoard(el.dataset.id));
+  });
+}
+
+function ddItems() {
+  return dd.sections.flatMap((s) => s.items);
+}
+
+function closeDropdown() {
+  const box = $('dd');
+  box.hidden = true;
+  box.innerHTML = '';
+  dd.sections = [];
+  dd.hl = -1;
+  $('stationInput').setAttribute('aria-expanded', 'false');
+}
+
+function onSearchKey(e) {
+  const items = ddItems();
+  if (e.key === 'Escape') return closeDropdown();
+  if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && items.length) {
+    e.preventDefault();
+    dd.hl = (dd.hl + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+    openDropdown(dd.sections, dd.hint);
+    $('dd').querySelector('.it.hl')?.scrollIntoView({ block: 'nearest' });
+  }
+  if (e.key === 'Enter' && !$('dd').hidden && dd.hl >= 0 && items[dd.hl]) {
+    e.preventDefault();
+    addBoard(items[dd.hl][1]);
+  }
+}
+
+// "Near me": bus stops, Tube and rail stations around the viewer's location (used once, not stored).
+function nearMe() {
+  const hint = 'Uses your location once, only to find nearby stops. Nothing is stored.';
+  if (!navigator.geolocation) return flash('Location is not available in this browser.');
+  clearTimeout(onType.t);            // drop any search still waiting
+  $('stationInput').value = '';
+  $('stationInput').focus();
+  openDropdown([{ title: 'Near you', items: [], note: 'Finding your location…' }], hint);
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    try {
+      const { latitude, longitude } = pos.coords;
+      const r = await fetch(`api/near?lat=${latitude.toFixed(5)}&lon=${longitude.toFixed(5)}`);
+      const body = await r.json();
+      if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+      remember(body.results.map((x) => x.slice(0, 5)));
+      const note = body.results.length ? '' : (body.error ? `Couldn't get stops from TfL (${body.error})` : 'Nothing found nearby');
+      openDropdown([{ title: `Near you · within ${body.radius} m`, items: body.results, note }], hint);
+    } catch (err) {
+      openDropdown([{ title: 'Near you', items: [], note: `Couldn't find nearby stops: ${err.message}` }], hint);
+    }
+  }, (err) => {
+    const why = err.code === 1 ? 'Location permission was refused. Allow it in your browser to use Near me.'
+      : 'Your location could not be found. Try again, or search by name.';
+    openDropdown([{ title: 'Near you', items: [], note: why }], '');
+  }, { timeout: 15000, maximumAge: 60000 });
 }
 
 async function onAdd(e) {
   e.preventDefault();
-  const input = $('stationInput');
-  const text = input.value;
+  const items = ddItems();
+  if (!$('dd').hidden && (dd.hl >= 0 || items.length === 1)) return addBoard(items[Math.max(dd.hl, 0)][1]);
+  const text = $('stationInput').value;
   let id = wantsBus(text) ? null : findStation(text);
   if (!id) {
     let found = wantsBus(text) ? [] : await searchTfl(text, 'tube');
     if (!found.length) found = await searchTfl(text, 'bus');
-    const want = text.replace(TUBE_WORDS, '').replace(BUS_WORDS, '').trim().toLowerCase();
+    const want = cleanQuery(text).toLowerCase();
     const exact = found.filter(([n]) => n.toLowerCase() === want);
     if (exact.length === 1 || found.length === 1) id = (exact[0] || found[0])[1];
-    else if (found.length) return offerChoices(found);
+    else if (found.length) {
+      $('stationInput').focus();
+      return openDropdown([{ title: 'Pick one', items: found }], '');
+    }
   }
-  if (!id) return flash('Not found. Pick from the list, or add "bus" / a 5-digit stop code for bus stops.');
+  if (!id) return flash('Not found. Try another name, a 5-digit bus stop code, or 📍 Near me.');
   addBoard(id);
 }
 
 function addBoard(id) {
+  closeDropdown();
   if (selected.includes(id)) return flash('That one is already shown.');
   if (selected.length >= MAX) return flash(`Up to ${MAX} boards.`);
   selected.push(id);
@@ -205,15 +339,6 @@ function addBoard(id) {
   flash('');
   saveSelection();
   render();
-}
-
-// Several matches (e.g. the stops around Trafalgar Square): show them as buttons.
-function offerChoices(found) {
-  clearTimeout(flash.t);
-  const msg = $('msg');
-  msg.innerHTML = 'Pick one: ' + found.slice(0, 8).map(([, id]) =>
-    `<button type="button" class="pick" data-id="${esc(id)}">${esc(label(id))}</button>`).join('');
-  msg.querySelectorAll('.pick').forEach((b) => b.addEventListener('click', () => addBoard(b.dataset.id)));
 }
 
 function removeBoard(key) {
@@ -233,7 +358,7 @@ function changeFilter(oldKey, filter) {
 }
 
 function flash(text) {
-  $('msg').textContent = text;   // also clears any "Pick one" buttons
+  $('msg').textContent = text;
   clearTimeout(flash.t);
   if (text) flash.t = setTimeout(() => ($('msg').textContent = ''), 4000);
 }
@@ -285,7 +410,8 @@ function render() {
   const full = selected.length >= MAX;
   $('stationInput').disabled = full;
   $('addForm').querySelector('button').disabled = full;
-  $('stationInput').placeholder = full ? 'Maximum 4 boards' : 'Station, Tube, or bus stop (name + "bus", or stop code)…';
+  $('stationInput').placeholder = full ? 'Maximum 4 boards' : 'Station, Tube or bus stop…';
+  $('nearBtn').disabled = full;
   $('tflCredit').hidden = !selected.some((k) => kindOf(parseKey(k).id) !== 'rail');
 
   const n = selected.length;
@@ -338,7 +464,7 @@ async function load(id) {
   stationData.set(id, entry);
   const d = entry.data;
   if (d?.kind === 'tube' && d.station && remember([[d.station, id, 'tube']])) render();
-  if (d?.kind === 'bus' && d.station && remember([[d.station, id, 'bus', d.towards || '']])) render();
+  if (d?.kind === 'bus' && d.station && remember([[d.station, id, 'bus', d.towards || '', byId.get(id)?.routes || d.routes || []]])) render();
   for (const b of boards.values()) if (b.id === id) paint(b);
   renderChips();
 }
