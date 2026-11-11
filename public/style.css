@@ -103,6 +103,8 @@ body {
 .row { padding: 0 .08em; display: flex; justify-content: space-between; gap: .6em; white-space: nowrap; overflow: hidden; }
 .row .l { overflow: hidden; white-space: pre; }
 .row .r { flex: none; max-width: 45%; overflow: hidden; }
+.row .mq { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+.row .mq span { display: inline-block; will-change: transform; }
 .hide { display: none !important; }
 .row, .call { min-height: 1.15em; }   /* empty lines keep their height */
 .call { padding: 0 .08em; overflow: hidden; white-space: nowrap; }

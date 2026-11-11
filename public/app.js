@@ -304,7 +304,7 @@ function render() {
     cell.innerHTML = `<div class="case">
       <div class="title"><span class="badge"></span><span class="nm"></span><span class="ft"></span></div>
       <div class="inner"><div class="board">
-      <div class="row r1"><span class="l"></span><span class="r"></span></div>
+      <div class="row r1"><span class="l"></span><span class="mq hide"><span></span></span><span class="r"></span></div>
       <div class="row r2 hide"><span class="l"></span><span class="r"></span></div>
       <div class="call"><span></span></div>
       <div class="row r3"><span class="l"></span><span class="r"></span></div>
@@ -364,6 +364,7 @@ function paint(b) {
   badge.textContent = kind.toUpperCase();
   b.el.querySelector('.title .nm').textContent = title(b.id);
   b.el.querySelector('.title .ft').textContent = filterLabel(b.filter, b.id);
+  b.el.querySelector('.r1 .mq').classList.toggle('hide', s?.data?.kind !== 'bus');
   if (!s?.data) return showText(b, s?.error || 'Loading…', s?.detail || '');
   if (s.data.kind === 'bus') return paintBus(b, s.data);
   return s.data.kind === 'tube' ? paintTube(b, s.data) : paintRail(b, s.data);
@@ -494,8 +495,14 @@ function paintBus(b, d) {
   show('.call', false);
   show('.r2', true);
   show('.r3', true);
-  const head = [d.stop, d.towards ? `→ ${d.towards}` : ''].filter(Boolean).join(' ');
-  set('r1', head || d.station);
+  // "Stop E →" stays put; the destinations after it scroll if they don't fit.
+  if (d.towards) {
+    set('r1', d.stop ? `${d.stop} →` : '→');
+    setMarquee(b, d.towards);
+  } else {
+    set('r1', d.stop || d.station);
+    setMarquee(b, '');
+  }
   const list = busArrivals(b, d);
   if (!list.length) {
     set('r2', b.filter ? `No ${filterLabel(b.filter, b.id).toLowerCase()} buses due` : 'No buses due');
@@ -523,6 +530,14 @@ function setCall(b, text) {
   b.lastText = text;
   b.el.querySelector('.call span').textContent = text;
   b.x = null;                                         // restart from the right edge
+}
+
+function setMarquee(b, text) {
+  const span = b.el.querySelector('.r1 .mq span');
+  if (span.textContent === text) return;
+  span.textContent = text;
+  b.mx = 0;
+  b.mPause = 2;   // seconds to show the start before scrolling
 }
 
 /* ---------- Timers & animation ---------- */
@@ -570,6 +585,7 @@ function scrollLoop(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   for (const b of boards.values()) {
+    scrollMarquee(b, dt);
     const box = b.el.querySelector('.call');
     const span = box.firstElementChild;
     if (box.classList.contains('hide') || !span.textContent) continue;
@@ -584,6 +600,25 @@ function scrollLoop(now) {
     span.style.transform = `translateX(${Math.round(b.x)}px)`;
   }
   requestAnimationFrame(scrollLoop);
+}
+
+// Header text that doesn't fit: show the start, pause, scroll it away, then start again.
+function scrollMarquee(b, dt) {
+  const box = b.el.querySelector('.r1 .mq');
+  const span = box.firstElementChild;
+  if (box.classList.contains('hide') || !span.textContent) return;
+  if (span.offsetWidth <= box.clientWidth + 1) {
+    if (b.mx) { b.mx = 0; span.style.transform = ''; }
+    return;
+  }
+  if (b.mPause > 0) {
+    b.mPause -= dt;
+  } else {
+    const em = parseFloat(getComputedStyle(box).fontSize) || 16;
+    b.mx -= SCROLL_EM_PER_S * em * dt;
+    if (b.mx < -span.offsetWidth) { b.mx = 0; b.mPause = 2; }
+  }
+  span.style.transform = `translateX(${Math.round(b.mx)}px)`;
 }
 
 /* ---------- Misc ---------- */
