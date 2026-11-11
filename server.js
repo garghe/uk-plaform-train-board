@@ -20,6 +20,7 @@ const api = createApi({
   apiUrl: process.env.RDM_DEPARTURES_URL,
   tflUrl: process.env.TFL_API_URL,
   tflKey: process.env.TFL_APP_KEY,
+  build: { deployedAt: new Date().toISOString(), version: '', how: 'started' },
 });
 
 const MIME = {

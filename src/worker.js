@@ -19,6 +19,8 @@ export default {
         apiUrl: env.RDM_DEPARTURES_URL,
         tflKey: env.TFL_APP_KEY,
         tflUrl: env.TFL_API_URL,
+        // Set by Cloudflare on each deploy: { id, tag, timestamp }
+        build: { deployedAt: env.CF_VERSION_METADATA?.timestamp || '', version: env.CF_VERSION_METADATA?.id || '', how: 'deployed' },
       });
       apiFor = key;
     }

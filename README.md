@@ -157,6 +157,10 @@ If your endpoint address differs, add `RDM_DEPARTURES_URL` as a plain variable (
 
 In the Cloudflare dashboard, **Workers & Pages → Create → Import a repository**, pick this repo, and keep the deploy command `npx wrangler deploy`. Then add the `RDM_API_KEY` secret as above. Every push to the chosen branch redeploys.
 
+### Checking which version is live
+
+The page footer shows when the running version was deployed, e.g. `Deployed 11 Nov 2026, 23:14 (UK time) · version 1a2b3c4d`. Cloudflare supplies this on every deploy (the `version_metadata` setting in `wrangler.toml`). When running locally with `npm start`, the footer shows when the server started.
+
 ### Testing the Cloudflare version locally
 
 ```bash

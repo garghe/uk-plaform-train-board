@@ -17,9 +17,10 @@ const CACHE_MS = 20 * 1000;
  * @param {string} [opts.apiUrl] Departures endpoint (station code is appended)
  * @param {string} [opts.tflUrl] TfL API base URL
  * @param {string} [opts.tflKey] TfL app key (optional)
+ * @param {object} [opts.build] { deployedAt, version, how: 'deployed'|'started' } for the page footer
  * @returns {(url: URL) => Promise<Response|null>} null when the path is not an API path
  */
-export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tflUrl, tflKey }) {
+export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tflUrl, tflKey, build = {} }) {
   const tfl = createTfl({ baseUrl: tflUrl, appKey: tflKey });
   apiKey = String(apiKey || '').trim();
   apiUrl = String(apiUrl || DEFAULT_API_URL).replace(/\/+$/, '');
@@ -86,7 +87,7 @@ export function createApi({ stations, apiKey = '', apiUrl = DEFAULT_API_URL, tfl
       }
       if (url.pathname === '/api/status') {
         if (url.searchParams.has('check')) await tfl.listStations();
-        return json(200, { mode: apiKey ? 'live' : 'sample', tube: tfl.info() });
+        return json(200, { mode: apiKey ? 'live' : 'sample', tube: tfl.info(), build });
       }
       if (url.pathname.startsWith('/api/')) return json(404, { error: 'Not found' });
       return null;

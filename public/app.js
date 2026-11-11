@@ -29,9 +29,10 @@ async function init() {
   fillSuggestions();
   $('stationInput').addEventListener('input', onType);
 
-  fetch('api/status').then((r) => r.json()).then(({ mode }) => {
+  fetch('api/status').then((r) => r.json()).then(({ mode, build }) => {
     $('mode').innerHTML = mode === 'live' ? '<span class="live">● Live data</span>' : '<span class="sample">● Sample rail data</span>';
-  });
+    showBuild(build);
+  }).catch(() => {});
 
   selected = readSelection();
   $('addForm').addEventListener('submit', onAdd);
@@ -586,6 +587,17 @@ function scrollLoop(now) {
 }
 
 /* ---------- Misc ---------- */
+
+// Footer: "Deployed 11 Nov 2026, 23:14 · version 1a2b3c4d"
+function showBuild(build) {
+  const when = build?.deployedAt ? new Date(build.deployedAt) : null;
+  if (!when || isNaN(when)) return;
+  const fmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  const what = build.how === 'started' ? 'Running locally, started' : 'Deployed';
+  $('footer').textContent = `${what} ${fmt.format(when)} (UK time)${build.version ? ` · version ${build.version.slice(0, 8)}` : ''}`;
+}
 
 function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen();

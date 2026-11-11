@@ -114,8 +114,13 @@ body {
   display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px;
 }
 
+.foot {
+  padding: 6px 16px 10px; font-size: 12px; color: var(--muted); text-align: right;
+}
+.foot:empty { display: none; }
+
 /* Full screen: hide the toolbar */
-body.is-fs .top { display: none; }
+body.is-fs .top, body.is-fs .foot { display: none; }
 
 @media (max-width: 700px) {
   .chips { width: 100%; }
