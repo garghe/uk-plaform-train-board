@@ -17,6 +17,17 @@ Each board has four lines, like the real ones:
 
 Data refreshes every 30 seconds.
 
+### Platform screens (rail)
+
+Each rail station's tag has a **view** menu: **Classic board** (above) or **Platform screens**, like the row of tall screens at big stations:
+
+- **One screen per platform**, showing the next train from that platform, ordered by departure time (up to 10). Scroll or swipe sideways for more.
+- Each screen: time and platform, destination, status (`Exp 14:38`, `Cancelled`; blank when on time), **calling points with times**, the operator, and the train length when the data has it (e.g. "formed of 8 coaches", scrolling if long).
+- Long lists of stops turn pages (`Page 1 of 2`) every few seconds.
+- Combine with the platform menu to show a single platform's screen. Saved in the web address, e.g. `?stations=KGX:screens` or `KGX:p9:screens`.
+
+![Platform screens](docs/screenshot-platform-screens.png)
+
 ### Tube boards
 
 London Underground stations get a Tube-style board, like the ones on the platforms:

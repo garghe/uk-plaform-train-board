@@ -133,6 +133,42 @@ input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
 .call span { display: inline-block; will-change: transform; }
 .clock { text-align: center; font-size: 1.4em; line-height: 1.1; font-variant-numeric: tabular-nums; }
 
+/* Platform screens view (rail): a sideways-scrolling row of tall screens */
+.cell.screens .case { height: 100%; }
+.wall {
+  flex: 1; min-height: 0; display: flex; gap: 10px; padding: 10px; overflow-x: auto; overflow-y: hidden;
+  scroll-snap-type: x mandatory; container-type: size; scrollbar-color: #444 transparent;
+}
+.screen {
+  flex: none; height: 100%; width: 17.5em; scroll-snap-align: start;
+  display: flex; flex-direction: column; padding: .7em .7em .5em; overflow: hidden;
+  background: #0a0a0a radial-gradient(var(--led-off) 30%, transparent 31%) 0 0 / .15em .15em;
+  border: 3px solid #222; border-radius: 3px;
+  font-family: Doto, monospace; font-weight: 900; color: var(--led); text-shadow: 0 0 .12em var(--led-glow);
+  font-size: max(9px, 2.55cqh); line-height: 1.22;
+}
+.screen .hd { display: flex; justify-content: space-between; gap: .5em; font-size: 1.45em; white-space: nowrap; }
+.screen .ds { font-size: 1.45em; white-space: nowrap; overflow: hidden; }
+.screen .cl { display: flex; justify-content: space-between; gap: .5em; white-space: nowrap; }
+.screen .stops { flex: 1; min-height: 0; overflow: hidden; white-space: nowrap; }
+.screen .stops > div { overflow: hidden; }
+.screen .op { font-size: 1.45em; margin-top: .3em; white-space: nowrap; overflow: hidden; }
+.screen .fm { white-space: nowrap; overflow: hidden; }
+.screen .fm span { display: inline-block; }
+.screen .fm.run span { animation: fm-scroll var(--t, 10s) linear infinite; }
+@keyframes fm-scroll {
+  0%, 15% { transform: translateX(0); }
+  85%, 100% { transform: translateX(var(--d, 0)); }
+}
+.wclock {
+  text-align: center; padding: 2px 0 8px; font-family: Doto, monospace; font-weight: 900;
+  color: var(--led); text-shadow: 0 0 .12em var(--led-glow); font-size: max(18px, 4.2cqh);
+}
+.wmsg {
+  margin: auto; text-align: center; font-family: Doto, monospace; font-weight: 900; color: var(--led);
+  font-size: max(14px, 5cqh); padding: 1em;
+}
+
 .empty {
   flex: 1; height: 100%; border: 2px dashed #333; border-radius: 8px; color: #666; font-size: 18px;
   display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px;
@@ -153,6 +189,8 @@ body.is-fs .top, body.is-fs .foot { display: none; }
   /* Height follows the width, so the LED text is as large as the width allows */
   .cell { height: calc(min(100vw - 24px, 1400px) * .26 + 48px); }
   .cell.slot { display: none; }
+  /* Platform screens need height: most of the screen */
+  .cell.screens { height: min(75vh, 640px); }
   /* 16px stops iPhone Safari zooming in when the box is tapped */
   .add input, .chip select { font-size: 16px; }
 }

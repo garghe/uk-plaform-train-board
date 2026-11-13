@@ -50,12 +50,20 @@ async function init() {
 /* ---------- Board keys: "ID" or "ID:filter" ---------- */
 // filter: '' = all, 'p2' = platform 2, 'northbound' etc. = a direction (Tube), 'r88' = route 88 (bus)
 
+// view: '' = classic board, 'screens' = platform screens (rail). Key: "ID[:filter][:screens]"
+const validFilter = (f) => /^p[0-9]{1,2}[a-z]?$/.test(f) || /^r[0-9a-z]{1,5}$/.test(f) || DIRECTIONS.includes(f);
+
+function makeKey(id, filter = '', view = '') {
+  return [id, filter, view === 'screens' ? 'screens' : ''].filter(Boolean).join(':');
+}
+
 function parseKey(key) {
-  const [rawId, rawFilter = ''] = String(key).trim().split(':');
+  const [rawId, ...rest] = String(key).trim().split(':');
   const id = rawId.toUpperCase();
-  let filter = rawFilter.toLowerCase();
-  if (!/^p[0-9]{1,2}[a-z]?$/.test(filter) && !/^r[0-9a-z]{1,5}$/.test(filter) && !DIRECTIONS.includes(filter)) filter = '';
-  return { id, filter, key: filter ? `${id}:${filter}` : id };
+  const parts = rest.map((p) => p.toLowerCase());
+  const filter = parts.find(validFilter) || '';
+  const view = parts.includes('screens') ? 'screens' : '';
+  return { id, filter, view, key: makeKey(id, filter, view) };
 }
 
 function filterLabel(filter, id = '') {
@@ -348,8 +356,16 @@ function removeBoard(key) {
 }
 
 function changeFilter(oldKey, filter) {
-  const { id } = parseKey(oldKey);
-  const newKey = parseKey(`${id}:${filter}`).key;
+  const { id, view } = parseKey(oldKey);
+  changeKey(oldKey, makeKey(id, filter, view));
+}
+
+function changeView(oldKey, view) {
+  const { id, filter } = parseKey(oldKey);
+  changeKey(oldKey, makeKey(id, filter, view));
+}
+
+function changeKey(oldKey, newKey) {
   if (newKey === oldKey) return;
   if (selected.includes(newKey)) { flash('That board is already shown.'); renderChips(true); return; }
   selected = selected.map((k) => (k === oldKey ? newKey : k));
@@ -389,19 +405,23 @@ const numeric = (a, b) => String(a).localeCompare(String(b), 'en', { numeric: tr
 let chipsHtml = '';
 function renderChips(force = false) {
   const html = selected.map((key) => {
-    const { id, filter } = parseKey(key);
+    const { id, filter, view } = parseKey(key);
     const options = filterOptions(key)
       .map((f) => `<option value="${f}"${f === filter ? ' selected' : ''}>${esc(filterLabel(f, id))}</option>`).join('');
     const kind = kindOf(id);
-    return `<span class="chip"><span class="badge ${kind}">${kind.toUpperCase()}</span>${esc(title(id))}`
-      + `<select data-key="${key}" aria-label="Filter for ${esc(title(id))}">${options}</select>`
+    const viewMenu = kind !== 'rail' ? '' : `<select class="view" data-key="${key}" aria-label="View for ${esc(title(id))}">`
+      + `<option value=""${view ? '' : ' selected'}>Classic board</option>`
+      + `<option value="screens"${view ? ' selected' : ''}>Platform screens</option></select>`;
+    return `<span class="chip"><span class="badge ${kind}">${kind.toUpperCase()}</span>${esc(title(id))}${viewMenu}`
+      + `<select class="filter" data-key="${key}" aria-label="Filter for ${esc(title(id))}">${options}</select>`
       + `<button type="button" data-key="${key}" aria-label="Remove ${esc(title(id))}">✕</button></span>`;
   }).join('');
   if (html === chipsHtml && !force) return;   // don't close an open menu for nothing
   chipsHtml = html;
   $('chips').innerHTML = html;
   $('chips').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => removeBoard(b.dataset.key)));
-  $('chips').querySelectorAll('select').forEach((s) => s.addEventListener('change', () => changeFilter(s.dataset.key, s.value)));
+  $('chips').querySelectorAll('select.filter').forEach((s) => s.addEventListener('change', () => changeFilter(s.dataset.key, s.value)));
+  $('chips').querySelectorAll('select.view').forEach((s) => s.addEventListener('change', () => changeView(s.dataset.key, s.value)));
 }
 
 function render() {
@@ -424,10 +444,14 @@ function render() {
     return;
   }
   for (const key of selected) {
-    const { id, filter } = parseKey(key);
+    const { id, filter, view } = parseKey(key);
     const cell = document.createElement('div');
-    cell.className = 'cell';
-    cell.innerHTML = `<div class="case">
+    const screens = view === 'screens' && kindOf(id) === 'rail';
+    cell.className = screens ? 'cell screens' : 'cell';
+    cell.innerHTML = screens ? `<div class="case">
+      <div class="title"><span class="badge"></span><span class="nm"></span><span class="ft"></span></div>
+      <div class="wall" tabindex="0" aria-label="Platform screens, scroll sideways for more"></div>
+      <div class="wclock clock"></div></div>` : `<div class="case">
       <div class="title"><span class="badge"></span><span class="nm"></span><span class="ft"></span></div>
       <div class="inner"><div class="board">
       <div class="row r1"><span class="l"></span><span class="mq hide"><span></span></span><span class="r"></span></div>
@@ -436,7 +460,7 @@ function render() {
       <div class="row r3"><span class="l"></span><span class="r"></span></div>
       <div class="clock"></div></div></div></div>`;
     grid.appendChild(cell);
-    const b = { key, id, filter, el: cell, next: 1, plat: 0, x: null, lastText: '', mode: 'trains' };
+    const b = { key, id, filter, view: screens ? 'screens' : '', el: cell, next: 1, plat: 0, x: null, lastText: '', mode: 'trains' };
     boards.set(key, b);
     paint(b);
   }
@@ -489,7 +513,8 @@ function paint(b) {
   badge.className = `badge ${kind}`;
   badge.textContent = kind.toUpperCase();
   b.el.querySelector('.title .nm').textContent = title(b.id);
-  b.el.querySelector('.title .ft').textContent = filterLabel(b.filter, b.id);
+  b.el.querySelector('.title .ft').textContent = `${b.view === 'screens' ? 'Platform screens · ' : ''}${filterLabel(b.filter, b.id)}`;
+  if (b.view === 'screens') return paintScreens(b, s);
   b.el.querySelector('.r1 .mq').classList.toggle('hide', s?.data?.kind !== 'bus');
   if (!s?.data) return showText(b, s?.error || 'Loading…', s?.detail || '');
   if (s.data.kind === 'bus') return paintBus(b, s.data);
@@ -666,6 +691,72 @@ function setMarquee(b, text) {
   b.mPause = 2;   // seconds to show the start before scrolling
 }
 
+/* ---------- Platform screens (rail) ---------- */
+// One tall screen per platform showing its next train, like the screens at big stations:
+//   14:27   Platform 10 / Cambridge / status / Calling at: … (Page 1 of 2) / operator / formation
+// Screens are ordered by departure time, up to 10, and scroll sideways.
+const MAX_SCREENS = 10;
+
+function paintScreens(b, s) {
+  const wall = b.el.querySelector('.wall');
+  if (!s?.data) {
+    wall.innerHTML = `<div class="wmsg">${esc(s?.error || 'Loading…')}${s?.detail ? `<br>${esc(s.detail)}` : ''}</div>`;
+    return;
+  }
+  const want = b.filter.startsWith('p') ? b.filter.slice(1) : '';
+  const firstPerPlatform = new Map();
+  for (const sv of s.data.services || []) {
+    const p = String(sv.platform || '').toLowerCase();
+    if (!p || (want && p !== want) || firstPerPlatform.has(p)) continue;
+    firstPerPlatform.set(p, sv);
+  }
+  const list = [...firstPerPlatform.values()].slice(0, MAX_SCREENS);   // services already come in time order
+  if (!list.length) {
+    wall.innerHTML = `<div class="wmsg">${want ? `No trains from platform ${esc(want.toUpperCase())}` : 'No platforms announced yet'}</div>`;
+    return;
+  }
+  // Build the screens once per data change, then only flip pages.
+  const sig = list.map((sv) => `${sv.std}|${sv.platform}|${sv.etd}|${sv.destination}`).join(';');
+  if (wall.dataset.sig !== sig) {
+    wall.dataset.sig = sig;
+    wall.innerHTML = list.map((sv) => {
+      const st = status(sv);
+      const stops = (sv.calling?.length ? sv.calling : (sv.callingPoints || []).map((name) => ({ name, time: '' })));
+      const lines = stops.map((c, i) => `${i === stops.length - 1 && stops.length > 1 ? '& ' : ''}${c.name}${c.time ? ` (${c.time})` : ''}`);
+      const formation = sv.cancelled || st === 'Cancelled' ? 'This train has been cancelled.'
+        : sv.length ? `${/^[aeiou]/i.test(sv.operator || '') ? 'An' : 'A'} ${sv.operator || ''} service formed of ${sv.length} coaches`.replace(/\s+/g, ' ')
+        : sv.operator ? `${sv.operator} service` : '';
+      return `<div class="screen">
+        <div class="hd"><span>${esc(sv.std)}</span><span>Platform ${esc(sv.platform)}</span></div>
+        <div class="ds">${esc(sv.destination)}</div>
+        <div class="stl">${st === 'On time' ? '&nbsp;' : esc(st)}</div>
+        <div class="cl"><span>Calling at:</span><span class="pg"></span></div>
+        <div class="stops">${lines.map((l) => `<div>${esc(l)}</div>`).join('')}</div>
+        <div class="op">${esc(sv.operator || '')}</div>
+        <div class="fm"><span>${esc(formation)}</span></div></div>`;
+    }).join('');
+    // Bottom line too long for the screen: scroll it, like the real ones.
+    wall.querySelectorAll('.fm').forEach((fm) => {
+      const over = fm.firstElementChild.scrollWidth - fm.clientWidth;
+      fm.classList.toggle('run', over > 2);
+      fm.style.setProperty('--d', `${-over}px`);
+      fm.style.setProperty('--t', `${Math.max(6, over / 25)}s`);
+    });
+  }
+  // Pages: show as many stops as fit, flip every few seconds.
+  wall.querySelectorAll('.screen').forEach((scr) => {
+    const box = scr.querySelector('.stops');
+    const rows = [...box.children];
+    rows.forEach((r) => { r.hidden = false; });
+    const lineH = rows[0]?.offsetHeight || 1;
+    const per = Math.max(1, Math.floor(box.clientHeight / lineH));
+    const pages = Math.max(1, Math.ceil(rows.length / per));
+    const page = b.next % pages;
+    rows.forEach((r, i) => { r.hidden = Math.floor(i / per) !== page; });
+    scr.querySelector('.pg').textContent = `Page ${page + 1} of ${pages}`;
+  });
+}
+
 /* ---------- Timers & animation ---------- */
 
 const clockFmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
@@ -711,6 +802,7 @@ function scrollLoop(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   for (const b of boards.values()) {
+    if (b.view === 'screens') continue;
     scrollMarquee(b, dt);
     const box = b.el.querySelector('.call');
     const span = box.firstElementChild;

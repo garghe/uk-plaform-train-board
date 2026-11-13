@@ -151,6 +151,12 @@ async function liveBoard(crs, byCrs, apiKey, apiUrl) {
       operator: s.operator || '',
       cancelled: !!s.isCancelled,
       callingPoints: ((s.subsequentCallingPoints || [])[0]?.callingPoint || []).map((c) => c.locationName),
+      // Stops with times, for the platform screens: expected time if known, else scheduled
+      calling: ((s.subsequentCallingPoints || [])[0]?.callingPoint || []).map((c) => ({
+        name: c.locationName,
+        time: /^\d{1,2}:\d{2}$/.test(c.et || '') ? c.et : c.st || '',
+      })),
+      length: Number(s.length) || 0,   // coaches, when the data has it
     })),
   };
 }
@@ -185,6 +191,8 @@ function sampleBoard(crs, stations, byCrs) {
       operator: 'Sample Rail',
       cancelled: etd === 'Cancelled',
       callingPoints: calls,
+      calling: calls.map((name, i) => ({ name, time: hhmm(t + delay + 4 + i * 6) })),
+      length: [4, 5, 6, 8, 8, 10, 12][Math.floor(rand() * 7)],
       leaves: etd === 'Cancelled' ? t : t + delay,
     });
     t += 3 + Math.floor(rand() * 12);
