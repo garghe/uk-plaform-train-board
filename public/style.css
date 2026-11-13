@@ -154,8 +154,8 @@ input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
 .screen .stops > div { overflow: hidden; }
 .screen .op { font-size: 1.45em; margin-top: .3em; white-space: nowrap; overflow: hidden; }
 .screen .fm { white-space: nowrap; overflow: hidden; }
-.screen .fm span { display: inline-block; }
-.screen .fm.run span { animation: fm-scroll var(--t, 10s) linear infinite; }
+.screen .sx span { display: inline-block; }
+.screen .sx.run span { animation: fm-scroll var(--t, 10s) linear infinite; }
 @keyframes fm-scroll {
   0%, 15% { transform: translateX(0); }
   85%, 100% { transform: translateX(var(--d, 0)); }

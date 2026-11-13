@@ -729,19 +729,19 @@ function paintScreens(b, s) {
         : sv.operator ? `${sv.operator} service` : '';
       return `<div class="screen">
         <div class="hd"><span>${esc(sv.std)}</span><span>Platform ${esc(sv.platform)}</span></div>
-        <div class="ds">${esc(sv.destination)}</div>
+        <div class="ds sx"><span>${esc(sv.destination)}</span></div>
         <div class="stl">${st === 'On time' ? '&nbsp;' : esc(st)}</div>
         <div class="cl"><span>Calling at:</span><span class="pg"></span></div>
         <div class="stops">${lines.map((l) => `<div>${esc(l)}</div>`).join('')}</div>
         <div class="op">${esc(sv.operator || '')}</div>
-        <div class="fm"><span>${esc(formation)}</span></div></div>`;
+        <div class="fm sx"><span>${esc(formation)}</span></div></div>`;
     }).join('');
-    // Bottom line too long for the screen: scroll it, like the real ones.
-    wall.querySelectorAll('.fm').forEach((fm) => {
-      const over = fm.firstElementChild.scrollWidth - fm.clientWidth;
-      fm.classList.toggle('run', over > 2);
-      fm.style.setProperty('--d', `${-over}px`);
-      fm.style.setProperty('--t', `${Math.max(6, over / 25)}s`);
+    // Destination or bottom line too long for the screen: scroll it, like the real ones.
+    wall.querySelectorAll('.sx').forEach((el) => {
+      const over = el.firstElementChild.scrollWidth - el.clientWidth;
+      el.classList.toggle('run', over > 2);
+      el.style.setProperty('--d', `${-over}px`);
+      el.style.setProperty('--t', `${Math.max(6, over / 25)}s`);
     });
   }
   // Pages: show as many stops as fit, flip every few seconds.
