@@ -16,6 +16,7 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+html { background: var(--page); }
 body {
   margin: 0;
   background: var(--page);
@@ -145,17 +146,24 @@ input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
 /* Full screen: hide the toolbar */
 body.is-fs .top, body.is-fs .foot { display: none; }
 
+/* Phones, portrait and landscape: one board per row, full width; the page scrolls. */
+@media (max-width: 700px), (max-height: 500px) {
+  html, body { height: auto; }
+  .grid, .n1, .n2, .n4 { flex: none; grid-template: none / 1fr; grid-auto-rows: auto; }
+  /* Height follows the width, so the LED text is as large as the width allows */
+  .cell { height: calc(min(100vw - 24px, 1400px) * .26 + 48px); }
+  .cell.slot { display: none; }
+  /* 16px stops iPhone Safari zooming in when the box is tapped */
+  .add input, .chip select { font-size: 16px; }
+}
+
 @media (max-width: 700px) {
   .add { flex-wrap: wrap; width: 100%; }
   .add .searchbox { flex: 1 1 100%; }
   .add input { width: 100%; max-width: none; }
-  /* 16px stops iPhone Safari zooming in when the box is tapped */
-  .add input, .chip select { font-size: 16px; }
   .chips { width: 100%; }
   .chip { max-width: 100%; white-space: normal; flex-wrap: wrap; }
-  .meta { white-space: normal; flex-wrap: wrap; }
-  .n4 { grid-template: repeat(4, 1fr) / 1fr; }
-  .meta { margin-left: 0; }
+  .meta { white-space: normal; flex-wrap: wrap; margin-left: 0; }
 }
 
 /* Small boards: smaller title bar */

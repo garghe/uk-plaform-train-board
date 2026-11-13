@@ -440,7 +440,7 @@ function render() {
     boards.set(key, b);
     paint(b);
   }
-  if (n === 3) grid.insertAdjacentHTML('beforeend', '<div class="cell"><div class="empty">+ Add a 4th station</div></div>');
+  if (n === 3) grid.insertAdjacentHTML('beforeend', '<div class="cell slot"><div class="empty">+ Add a 4th station</div></div>');
   for (const id of new Set(selected.map((k) => parseKey(k).id))) if (!stationData.get(id)?.data) load(id);
   tickClock();
 }
