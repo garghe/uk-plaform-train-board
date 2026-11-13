@@ -4,6 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>UK Departure Board</title>
+  <meta name="theme-color" content="#15171a">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Departures">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Doto:wght@900&family=Inter:wght@400;600&display=swap" rel="stylesheet">
@@ -25,10 +33,40 @@
     </form>
     <span id="msg" class="msg" role="status"></span>
     <span class="meta"><span id="tflCredit" hidden>Powered by TfL Open Data ·</span><span id="mode"></span> · refresh 30 s
-      <button id="fsBtn" class="fs" type="button" title="Full screen">⛶</button></span>
+      <button id="fsBtn" class="fs" type="button" title="Full screen">⛶</button>
+      <button id="installBtn" class="fs" type="button" title="Add to your home screen">📲 Add to Home Screen</button></span>
   </header>
   <main id="grid" class="grid"></main>
   <footer id="footer" class="foot"></footer>
+
+  <div id="install" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="installTitle">
+    <div class="sheet">
+      <button type="button" class="x" data-close aria-label="Close">✕</button>
+      <img src="icons/icon-192.png" alt="" class="appicon">
+      <h2 id="installTitle">Put the board on your home screen</h2>
+      <p class="lead">It opens full screen like an app, with its own icon. Free, nothing to download from the App Store.</p>
+      <div class="tabs" role="tablist">
+        <button type="button" role="tab" data-tab="ios">iPhone / iPad</button>
+        <button type="button" role="tab" data-tab="android">Android</button>
+      </div>
+      <ol class="steps" data-panel="ios">
+        <li>Open this page in <b>Safari</b>.</li>
+        <li>Tap the <b>Share</b> button <span class="key">⬆︎</span> (in the address bar or at the bottom of the screen).</li>
+        <li>Tap <b>View More</b> <span class="key">⌃</span> if you don't see the next option, then scroll down.</li>
+        <li>Tap <b>Add to Home Screen</b> <span class="key">⊞</span>.</li>
+        <li>Tap <b>Add</b>. The <b>Departures</b> icon appears on your home screen.</li>
+      </ol>
+      <ol class="steps" data-panel="android" hidden>
+        <li>Open this page in <b>Chrome</b>.</li>
+        <li>Tap the <b>menu</b> <span class="key">⋮</span> at the top right.</li>
+        <li>Tap <b>Add to Home screen</b> (or <b>Install app</b>).</li>
+        <li>Tap <b>Install</b> or <b>Add</b>. The <b>Departures</b> icon appears on your home screen.</li>
+        <li class="direct" hidden>Or simply: <button type="button" id="installNow" class="primary">Install now</button></li>
+      </ol>
+      <p class="tip">Tip: set up your boards first. The icon opens with the boards you have on screen when you add it.</p>
+      <div class="actions"><button type="button" class="primary" data-close>Got it</button></div>
+    </div>
+  </div>
   <script src="app.js"></script>
 </body>
 </html>

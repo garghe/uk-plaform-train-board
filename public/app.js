@@ -34,6 +34,7 @@ async function init() {
   }).catch(() => {});
 
   selected = readSelection();
+  setupInstallHelp();
   $('addForm').addEventListener('submit', onAdd);
   $('fsBtn').addEventListener('click', toggleFullscreen);
   document.addEventListener('fullscreenchange', () => document.body.classList.toggle('is-fs', !!document.fullscreenElement));
@@ -837,6 +838,63 @@ function scrollMarquee(b, dt) {
     if (b.mx < -span.offsetWidth) { b.mx = 0; b.mPause = 2; }
   }
   span.style.transform = `translateX(${Math.round(b.mx)}px)`;
+}
+
+/* ---------- "Add to Home Screen" help ---------- */
+// Shown once on a phone or tablet's first visit, and any time from the toolbar button.
+// Not shown when the page is already running from the home screen.
+const INSTALL_SEEN = 'departureBoard.installHelpSeen';
+let installPrompt = null;   // Android/Chrome can install with one tap
+
+function setupInstallHelp() {
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const modal = $('install');
+  $('installBtn').hidden = standalone;
+  if (!document.fullscreenEnabled) $('fsBtn').hidden = true;   // e.g. iPhone Safari has no full-screen mode
+  $('installBtn').addEventListener('click', openInstallHelp);
+  modal.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeInstallHelp));
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeInstallHelp(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) closeInstallHelp(); });
+  modal.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', () => showInstallTab(t.dataset.tab)));
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    modal.querySelector('.direct').hidden = false;
+  });
+  $('installNow').addEventListener('click', async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => {});
+    installPrompt = null;
+    closeInstallHelp();
+  });
+  let seen = false;
+  try { seen = !!localStorage.getItem(INSTALL_SEEN); } catch { /* storage unavailable */ }
+  const phoneOrTablet = matchMedia('(pointer: coarse)').matches;
+  if (!standalone && !seen && phoneOrTablet) setTimeout(openInstallHelp, 1200);
+}
+
+function deviceTab() {
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  return /Android/.test(ua) && !ios ? 'android' : 'ios';
+}
+
+function showInstallTab(tab) {
+  const modal = $('install');
+  modal.querySelectorAll('[data-tab]').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === tab)));
+  modal.querySelectorAll('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== tab; });
+}
+
+function openInstallHelp() {
+  showInstallTab(deviceTab());
+  $('install').hidden = false;
+  $('install').querySelector('.primary[data-close]').focus();
+}
+
+function closeInstallHelp() {
+  $('install').hidden = true;
+  try { localStorage.setItem(INSTALL_SEEN, '1'); } catch { /* storage unavailable */ }
 }
 
 /* ---------- Misc ---------- */

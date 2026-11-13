@@ -84,6 +84,10 @@ The choice is kept in the web address, e.g. `?stations=WAT:p2,940GZZLUBNK:northb
 - **Bookmark a set:** the web address keeps your stations, e.g. `http://localhost:3000/?stations=LBG,WAT,MAN,EDB`. Your last set is also remembered in the browser.
 - **Full screen:** the **⛶** button hides the toolbar (handy on a spare monitor or TV). Press `Esc` to leave.
 
+## On your phone's home screen
+
+The site can be added to a phone's home screen, where it opens full screen with its own **Departures** icon (no App Store). On a phone's first visit a short guide pops up with the steps for iPhone (Safari: Share → Add to Home Screen) and Android (Chrome: ⋮ → Add to Home screen / Install app); it's also available any time from the **📲 Add to Home Screen** button. The icon opens with the boards you had on screen when you added it.
+
 ## Running it
 
 You need [Node.js](https://nodejs.org) 18 or newer. Running it locally needs nothing installed.
