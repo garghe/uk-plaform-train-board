@@ -150,8 +150,9 @@ input[type="search"]::-webkit-search-decoration { -webkit-appearance: none; }
 .screen .hd { display: flex; justify-content: space-between; gap: .5em; font-size: 1.45em; white-space: nowrap; }
 .screen .ds { font-size: 1.45em; white-space: nowrap; overflow: hidden; }
 .screen .cl { display: flex; justify-content: space-between; gap: .5em; white-space: nowrap; }
-.screen .stops { flex: 1; min-height: 0; overflow: hidden; white-space: nowrap; }
-.screen .stops > div { overflow: hidden; }
+.screen .stops { flex: 1; min-height: 0; overflow: hidden; }
+/* Long stop names wrap; the second line is indented so each stop stands out */
+.screen .stops > div { padding-left: 1em; text-indent: -1em; overflow-wrap: anywhere; }
 .screen .op { font-size: 1.45em; margin-top: .3em; white-space: nowrap; overflow: hidden; }
 .screen .fm { white-space: nowrap; overflow: hidden; }
 .screen .sx span { display: inline-block; }

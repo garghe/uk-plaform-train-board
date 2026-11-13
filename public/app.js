@@ -744,17 +744,25 @@ function paintScreens(b, s) {
       el.style.setProperty('--t', `${Math.max(6, over / 25)}s`);
     });
   }
-  // Pages: show as many stops as fit, flip every few seconds.
+  // Pages: fill each page with as many stops as fit (long names wrap onto a
+  // second line, so rows differ in height), flip every few seconds.
   wall.querySelectorAll('.screen').forEach((scr) => {
     const box = scr.querySelector('.stops');
     const rows = [...box.children];
     rows.forEach((r) => { r.hidden = false; });
-    const lineH = rows[0]?.offsetHeight || 1;
-    const per = Math.max(1, Math.floor(box.clientHeight / lineH));
-    const pages = Math.max(1, Math.ceil(rows.length / per));
-    const page = b.next % pages;
-    rows.forEach((r, i) => { r.hidden = Math.floor(i / per) !== page; });
-    scr.querySelector('.pg').textContent = `Page ${page + 1} of ${pages}`;
+    const room = box.clientHeight;
+    const pageOf = [];
+    let page = 0, used = 0;
+    for (const r of rows) {
+      const h = r.offsetHeight;
+      if (used > 0 && used + h > room) { page += 1; used = 0; }
+      pageOf.push(page);
+      used += h;
+    }
+    const pages = page + 1;
+    const show = b.next % pages;
+    rows.forEach((r, i) => { r.hidden = pageOf[i] !== show; });
+    scr.querySelector('.pg').textContent = `Page ${show + 1} of ${pages}`;
   });
 }
 
